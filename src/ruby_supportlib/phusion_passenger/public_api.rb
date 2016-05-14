@@ -1,5 +1,5 @@
 #  Phusion Passenger - https://www.phusionpassenger.com/
-#  Copyright (c) 2010-2015 Phusion Holding B.V.
+#  Copyright (c) 2010-2016 Phusion Holding B.V.
 #
 #  "Passenger", "Phusion Passenger" and "Union Station" are registered
 #  trademarks of Phusion Holding B.V.
@@ -45,7 +45,7 @@ module PhusionPassenger
 
     # For backward compatibility
     def install_framework_extensions!(user_options = {})
-      if PhusionPassenger::App.options["analytics"]
+      if PhusionPassenger::App.options["analytics_support"]
         config = PhusionPassenger::App.options.merge(UnionStationHooks.config)
         user_options.each_pair do |key, value|
           config[key.to_s] = value

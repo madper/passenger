@@ -1,6 +1,6 @@
 # encoding: binary
 #  Phusion Passenger - https://www.phusionpassenger.com/
-#  Copyright (c) 2011-2015 Phusion Holding B.V.
+#  Copyright (c) 2011-2016 Phusion Holding B.V.
 #
 #  "Passenger", "Phusion Passenger" and "Union Station" are registered
 #  trademarks of Phusion Holding B.V.
@@ -28,6 +28,7 @@ PhusionPassenger.require_passenger_lib 'public_api'
 PhusionPassenger.require_passenger_lib 'ruby_core_enhancements'
 PhusionPassenger.require_passenger_lib 'debug_logging'
 PhusionPassenger.require_passenger_lib 'utils/shellwords'
+PhusionPassenger.require_passenger_lib 'utils/json'
 
 module PhusionPassenger
 
@@ -38,11 +39,18 @@ module PhusionPassenger
     # To be called by the (pre)loader as soon as possible.
     def init(options)
       Thread.main[:name] = "Main thread"
+      options = load_args_json("#{ENV['PASSENGER_SPAWN_WORK_DIR']}/args.json")
       # We don't dump PATH info because at this point it's
       # unlikely to be changed.
       dump_ruby_environment
       check_rvm_using_wrapper_script(options)
-      return sanitize_spawn_options(options)
+      options
+    end
+
+    def load_args_json(path)
+      File.open(path, 'rb') do |f|
+        PhusionPassenger::Utils::JSON.parse(f.read)
+      end
     end
 
     def check_rvm_using_wrapper_script(options)
@@ -71,11 +79,69 @@ module PhusionPassenger
       end
     end
 
+    def report_exception(options, exception)
+      dir = ENV['PASSENGER_SPAWN_WORK_DIR']
+
+      begin
+        File.open("#{dir}/response/error_summary", 'wb') do |f|
+          f.write("#{exception} (#{exception.class})")
+        end
+      rescue SystemCallError
+        # Don't care.
+      end
+
+      if exception.respond_to?(:html?) && exception.html?
+        begin
+          File.open("#{dir}/response/problem_description.html", 'wb') do |f|
+            f.write("#{h exception.to_s} (#{h exception.class.to_s})\n")
+            f.write(h(exception.backtrace.join("\n")))
+          end
+        rescue SystemCallError
+          # Don't care.
+        end
+      else
+        begin
+          File.open("#{dir}/response/problem_description.txt", 'wb') do |f|
+            f.write("#{exception.to_s} (#{exception.class.to_s})\n")
+            f.write(exception.backtrace.join("\n"))
+          end
+        rescue SystemCallError
+          # Don't care.
+        end
+      end
+
+      STDERR.puts("#{exception} (#{exception.class})\n#{exception.backtrace.join("\n")}")
+    end
+
+    def report_app_exception(options, exception)
+      dir = ENV['PASSENGER_SPAWN_WORK_DIR']
+
+      begin
+        File.open("#{dir}/response/error_source", 'wb') do |f|
+          f.write('APP')
+        end
+      rescue SystemCallError
+        # Don't care.
+      end
+
+      begin
+        File.open("#{dir}/response/error_kind", 'wb') do |f|
+          if exception.is_a?(SystemError)
+            f.write('OPERATING_SYSTEM_ERROR')
+          else
+            f.write('INTERNAL_ERROR')
+          end
+        end
+      rescue SystemCallError
+        # Don't care.
+      end
+
+      report_exception(options, exception)
+    end
+
     # To be called whenever the (pre)loader is about to abort with an error.
     def about_to_abort(options, exception = nil)
       dump_all_information(options)
-      # https://code.google.com/p/phusion-passenger/issues/detail?id=1039
-      puts
     end
 
     def to_boolean(value)
@@ -85,13 +151,11 @@ module PhusionPassenger
     def sanitize_spawn_options(options)
       defaults = {
         "app_type"         => "rack",
-        "environment"      => "production",
-        "print_exceptions" => true
+        "app_env"          => "production"
       }
       options = defaults.merge(options)
       options["app_group_name"]            = options["app_root"] if !options["app_group_name"]
-      options["print_exceptions"]          = to_boolean(options["print_exceptions"])
-      options["analytics"]                 = to_boolean(options["analytics"])
+      options["analytics_support"]         = to_boolean(options["analytics_support"])
       options["show_version_in_header"]    = to_boolean(options["show_version_in_header"])
       options["log_level"]                 = options["log_level"].to_i if options["log_level"]
       # TODO: smart spawning is not supported when using ruby-debug. We should raise an error
@@ -99,61 +163,60 @@ module PhusionPassenger
       options["debugger"]     = to_boolean(options["debugger"])
       options["spawn_method"] = "direct" if options["debugger"]
 
-      return options
+      options
     end
 
     def dump_all_information(options)
       dump_ruby_environment
       dump_envvars
-      dump_system_metrics(options)
     end
 
     def dump_ruby_environment
-      if dir = ENV['PASSENGER_DEBUG_DIR']
-        File.open("#{dir}/ruby_info", "w") do |f|
-          f.puts "RUBY_VERSION = #{RUBY_VERSION}"
-          f.puts "RUBY_PLATFORM = #{RUBY_PLATFORM}"
-          f.puts "RUBY_ENGINE = #{defined?(RUBY_ENGINE) ? RUBY_ENGINE : 'nil'}"
-        end
-        File.open("#{dir}/load_path", "wb") do |f|
-          $LOAD_PATH.each do |path|
-            f.puts path
-          end
-        end
-        File.open("#{dir}/loaded_libs", "wb") do |f|
-          $LOADED_FEATURES.each do |filename|
-            f.puts filename
-          end
-        end
+      dir = "#{ENV['PASSENGER_SPAWN_WORK_DIR']}/response"
 
-        # We write to these files last because the 'require' calls can fail.
-        require 'rbconfig' if !defined?(RbConfig::CONFIG)
-        File.open("#{dir}/rbconfig", "wb") do |f|
-          RbConfig::CONFIG.each_pair do |key, value|
-            f.puts "#{key} = #{value}"
+      File.open("#{dir}/ruby_info", "w") do |f|
+        f.puts "RUBY_VERSION = #{RUBY_VERSION}"
+        f.puts "RUBY_PLATFORM = #{RUBY_PLATFORM}"
+        f.puts "RUBY_ENGINE = #{defined?(RUBY_ENGINE) ? RUBY_ENGINE : 'nil'}"
+      end
+      File.open("#{dir}/load_path", "wb") do |f|
+        $LOAD_PATH.each do |path|
+          f.puts path
+        end
+      end
+      File.open("#{dir}/loaded_libs", "wb") do |f|
+        $LOADED_FEATURES.each do |filename|
+          f.puts filename
+        end
+      end
+
+      # We write to these files last because the 'require' calls can fail.
+      require 'rbconfig' if !defined?(RbConfig::CONFIG)
+      File.open("#{dir}/rbconfig", "wb") do |f|
+        RbConfig::CONFIG.each_pair do |key, value|
+          f.puts "#{key} = #{value}"
+        end
+      end
+      begin
+        require 'rubygems' if !defined?(Gem)
+      rescue LoadError
+      end
+      if defined?(Gem)
+        File.open("#{dir}/ruby_info", "a") do |f|
+          f.puts "RubyGems version = #{Gem::VERSION}"
+          if Gem.respond_to?(:path)
+            f.puts "RubyGems paths = #{Gem.path.inspect}"
+          else
+            f.puts "RubyGems paths = unknown; incompatible RubyGems API"
           end
         end
-        begin
-          require 'rubygems' if !defined?(Gem)
-        rescue LoadError
-        end
-        if defined?(Gem)
-          File.open("#{dir}/ruby_info", "a") do |f|
-            f.puts "RubyGems version = #{Gem::VERSION}"
-            if Gem.respond_to?(:path)
-              f.puts "RubyGems paths = #{Gem.path.inspect}"
-            else
-              f.puts "RubyGems paths = unknown; incompatible RubyGems API"
+        File.open("#{dir}/activated_gems", "wb") do |f|
+          if Gem.respond_to?(:loaded_specs)
+            Gem.loaded_specs.each_pair do |name, spec|
+              f.puts "#{name} => #{spec.version}"
             end
-          end
-          File.open("#{dir}/activated_gems", "wb") do |f|
-            if Gem.respond_to?(:loaded_specs)
-              Gem.loaded_specs.each_pair do |name, spec|
-                f.puts "#{name} => #{spec.version}"
-              end
-            else
-              f.puts "Unable to query this information; incompatible RubyGems API."
-            end
+          else
+            f.puts "Unable to query this information; incompatible RubyGems API."
           end
         end
       end
@@ -162,40 +225,11 @@ module PhusionPassenger
     end
 
     def dump_envvars
-      if dir = ENV['PASSENGER_DEBUG_DIR']
-        File.open("#{dir}/envvars", "wb") do |f|
-          ENV.each_pair do |key, value|
-            f.puts "#{key} = #{value}"
-          end
-        end
-      end
-    rescue SystemCallError
-      # Don't care.
-    end
+      dir = "#{ENV['PASSENGER_SPAWN_WORK_DIR']}/response"
 
-    def dump_system_metrics(options)
-      if dir = ENV['PASSENGER_DEBUG_DIR']
-        # When invoked through Passenger Standalone, we want passenger-config
-        # to use the PassengerAgent in the Passsenger Standalone buildout directory,
-        # because the one in the source root may not exist.
-        passenger_config = "#{PhusionPassenger.bin_dir}/passenger-config"
-        if is_ruby_program?(passenger_config)
-          ruby = options["ruby"]
-        else
-          ruby = nil
-        end
-        command = [
-          "env",
-          "PASSENGER_LOCATION_CONFIGURATION_FILE=#{PhusionPassenger.install_spec}",
-          ruby,
-          passenger_config,
-          "system-metrics"
-        ].compact
-        contents = `#{Shellwords.join(command)}`
-        if $? && $?.exitstatus == 0
-          File.open("#{dir}/system_metrics", "wb") do |f|
-            f.write(contents)
-          end
+      File.open("#{dir}/envvars", "wb") do |f|
+        ENV.each_pair do |key, value|
+          f.puts "#{key} = #{value}"
         end
       end
     rescue SystemCallError
@@ -223,9 +257,9 @@ module PhusionPassenger
       DebugLogging.log_level = options["log_level"] if options["log_level"]
 
       # We always load the union_station_hooks_* gems and do not check for
-      # `options["analytics"]` here. The gems don't actually initialize (and
+      # `options["analytics_support"]` here. The gems don't actually initialize (and
       # load the bulk of their code) unless they have determined that
-      # `options["analytics"]` is true. Regardless of whether Union Station
+      # `options["analytics_support"]` is true. Regardless of whether Union Station
       # support is enabled in Passenger, the UnionStationHooks namespace must
       # be available so that applications can call it, even though the actual
       # calls don't do anything when Union Station support is disabled.
@@ -343,17 +377,26 @@ module PhusionPassenger
       end
     end
 
-    def advertise_readiness
-      # https://code.google.com/p/phusion-passenger/issues/detail?id=1039
-      puts
-
-      puts "!> Ready"
-    end
-
-    def advertise_sockets(output, request_handler)
+    def advertise_sockets(options, request_handler)
+      json = []
       request_handler.server_sockets.each_pair do |name, options|
         concurrency = PhusionPassenger.advertised_concurrency_level || options[:concurrency]
-        output.puts "!> socket: #{name};#{options[:address]};#{options[:protocol]};#{concurrency}"
+        json << {
+          :name => name,
+          :address => options[:address],
+          :protocol => options[:protocol],
+          :concurrency => concurrency
+        }
+      end
+
+      File.open(ENV['PASSENGER_SPAWN_WORK_DIR'] + '/response/sockets.json', 'w') do |f|
+        f.write(PhusionPassenger::Utils::JSON.generate(json))
+      end
+    end
+
+    def advertise_readiness(options)
+      File.open(ENV['PASSENGER_SPAWN_WORK_DIR'] + '/finish', 'w') do |f|
+        f.write('1')
       end
     end
 

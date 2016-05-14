@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2015 Phusion Holding B.V.
+ *  Copyright (c) 2011-2016 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -27,6 +27,8 @@
 #define _PASSENGER_SPAWNING_KIT_DUMMY_SPAWNER_H_
 
 #include <Core/SpawningKit/Spawner.h>
+#include <oxt/system_calls.hpp>
+#include <boost/shared_ptr.hpp>
 #include <boost/atomic.hpp>
 
 namespace Passenger {
@@ -44,35 +46,55 @@ private:
 public:
 	unsigned int cleanCount;
 
-	DummySpawner(const ConfigPtr &_config)
-		: Spawner(_config),
+	DummySpawner(const Context *context)
+		: Spawner(context),
 		  count(1),
 		  cleanCount(0)
 		{ }
 
-	virtual Result spawn(const Options &options) {
+	virtual Result spawn(const AppPoolOptions &options) {
 		TRACE_POINT();
 		possiblyRaiseInternalError(options);
 
 		syscalls::usleep(config->spawnTime);
 
-		SocketPair adminSocket = createUnixSocketPair(__FILE__, __LINE__);
 		unsigned int number = count.fetch_add(1, boost::memory_order_relaxed);
+		Config config(options);
+		Json::Value extraArgs;
 		Result result;
-		Json::Value socket;
+		Result::Socket socket;
 
-		socket["name"] = "main";
-		socket["address"] = "tcp://127.0.0.1:1234";
-		socket["protocol"] = "session";
-		socket["concurrency"] = config->concurrency;
+		socket.name = "main";
+		socket.address = "tcp://127.0.0.1:1234";
+		socket.protocol = "session";
+		socket.concurrency = config->dummyConcurrency;
 
-		result["type"] = "dummy";
-		result["pid"] = number;
-		result["gupid"] = "gupid-" + toString(number);
-		result["spawner_creation_time"] = (Json::UInt64) SystemTime::getUsec();
-		result["spawn_start_time"] = (Json::UInt64) SystemTime::getUsec();
-		result["sockets"].append(socket);
-		result.adminSocket = adminSocket.second;
+		setConfigFromAppPoolOptions(config, extraArgs, options);
+		result.initialize(*context, config);
+		result.pid = number;
+		result.gupid = "gupid-" + toString(number);
+		result.sockets.push_back(socket);
+
+		vector<StaticString> &internalFieldErrors,
+		vector<StaticString> &appSuppliedFieldErrors;
+		if (!result.validate()) {
+			Journey journey(JOURNEY_TYPE_SPAWN_DIRECTLY);
+			journey.currentStep = PASSENGER_CORE_HANDSHAKE;
+			journey.failedStep = PASSENGER_CORE_HANDSHAKE;
+			SpawnException e("Error spawning the web application:"
+				" a bug in " SHORT_PROGRAM_NAME " caused the"
+				" spawn result to be invalid: "
+				+ toString(internalFieldErrors)
+				+ ", " + toString(appSuppliedFieldErrors),
+				&config,
+				journey,
+				SpawnException::INTERNAL_ERROR);
+			e.setProblemDescriptionHTML(
+				"Bug: the spawn result is invalid: "
+				+ toString(internalFieldErrors)
+				+ ", " + toString(appSuppliedFieldErrors));
+			throw e;
+		}
 
 		return result;
 	}

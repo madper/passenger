@@ -37,12 +37,7 @@ module PhusionPassenger
     def self.format_exception(e)
       result = "#{e} (#{e.class})"
       if !e.backtrace.empty?
-        if e.respond_to?(:html?) && e.html?
-          require 'erb' if !defined?(ERB)
-          result << "\n<pre>  " << ERB::Util.h(e.backtrace.join("\n  ")) << "</pre>"
-        else
-          result << "\n  " << e.backtrace.join("\n  ")
-        end
+        result << "\n  " << e.backtrace.join("\n  ")
       end
       return result
     end
@@ -55,16 +50,21 @@ module PhusionPassenger
       end
     end
 
-    def self.handshake_and_read_startup_request
+    def self.read_startup_arguments
       STDOUT.sync = true
       STDERR.sync = true
-      puts "!> I have control 1.0"
-      abort "Invalid initialization header" if STDIN.readline != "You have control 1.0\n"
+
+      dir = ENV['PASSENGER_SPAWN_WORK_DIR']
+      if dir.nil? || dir.empty?
+        abort 'PASSENGER_SPAWN_WORK_DIR not set'
+      end
 
       @@options = {}
-      while (line = STDIN.readline) != "\n"
-        name, value = line.strip.split(/: */, 2)
-        @@options[name] = value
+      Dir["#{dir}/args/*"].each do |path|
+        name = File.basename(path)
+        @@options[name] = File.open(path, 'rb') do |f|
+          f.read
+        end
       end
     end
 
@@ -83,11 +83,12 @@ module PhusionPassenger
       end
       RequestHandler::ThreadHandler.send(:include, Rack::ThreadHandlerExtension)
     rescue Exception => e
-      LoaderSharedHelpers.about_to_abort(options, e) if defined?(LoaderSharedHelpers)
-      puts "!> Error"
-      puts "!> html: true" if e.respond_to?(:html?) && e.html?
-      puts "!> "
-      puts format_exception(e)
+      if defined?(LoaderSharedHelpers)
+        LoaderSharedHelpers.report_exception(options, e)
+        LoaderSharedHelpers.about_to_abort(options, e)
+      else
+        puts format_exception(e)
+      end
       exit exit_code_for_exception(e)
     end
 
@@ -108,11 +109,8 @@ module PhusionPassenger
 
       LoaderSharedHelpers.after_loading_app_code(options)
     rescue Exception => e
+      LoaderSharedHelpers.report_app_exception(options, e)
       LoaderSharedHelpers.about_to_abort(options, e)
-      puts "!> Error"
-      puts "!> html: true" if e.respond_to?(:html?) && e.html?
-      puts "!> "
-      puts format_exception(e)
       exit exit_code_for_exception(e)
     end
 
@@ -120,14 +118,13 @@ module PhusionPassenger
     ################## Main code ##################
 
 
-    handshake_and_read_startup_request
+    read_startup_arguments
     init_passenger
     load_app
     LoaderSharedHelpers.before_handling_requests(false, options)
     handler = RequestHandler.new(STDIN, options.merge("app" => app))
-    LoaderSharedHelpers.advertise_readiness
-    LoaderSharedHelpers.advertise_sockets(STDOUT, handler)
-    puts "!> "
+    LoaderSharedHelpers.advertise_sockets(options, handler)
+    LoaderSharedHelpers.advertise_readiness(options)
     handler.main_loop
     handler.cleanup
     LoaderSharedHelpers.after_handling_requests

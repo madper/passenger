@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2014-2015 Phusion Holding B.V.
+ *  Copyright (c) 2014-2016 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -35,7 +35,7 @@ int coreMain(int argc, char *argv[]);
 int ustRouterMain(int argc, char *argv[]);
 int systemMetricsMain(int argc, char *argv[]);
 int tempDirToucherMain(int argc, char *argv[]);
-int spawnPreparerMain(int argc, char *argv[]);
+int spawnEnvSetupperMain(int argc, char *argv[]);
 
 static bool
 isHelp(const char *arg) {
@@ -88,8 +88,8 @@ dispatchSubcommand(int argc, char *argv[]) {
 		exit(systemMetricsMain(argc, argv));
 	} else if (strcmp(argv[1], "temp-dir-toucher") == 0) {
 		exit(tempDirToucherMain(argc, argv));
-	} else if (strcmp(argv[1], "spawn-preparer") == 0) {
-		exit(spawnPreparerMain(argc, argv));
+	} else if (strcmp(argv[1], "spawn-env-setupper") == 0) {
+		exit(spawnEnvSetupperMain(argc, argv));
 	} else if (strcmp(argv[1], "test-binary") == 0) {
 		printf("PASS\n");
 		exit(0);

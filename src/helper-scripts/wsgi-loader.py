@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #  Phusion Passenger - https://www.phusionpassenger.com/
-#  Copyright (c) 2010-2014 Phusion Holding B.V.
+#  Copyright (c) 2010-2016 Phusion Holding B.V.
 #
 #  "Passenger", "Phusion Passenger" and "Union Station" are registered
 #  trademarks of Phusion Holding B.V.
@@ -39,13 +39,9 @@ def readline():
 	else:
 		return result
 
-def handshake_and_read_startup_request():
+def read_startup_arguments():
 	global options
 
-	print("!> I have control 1.0")
-	if readline() != "You have control 1.0\n":
-		abort("Invalid initialization header")
-	
 	line = readline()
 	while line != "\n":
 		result = re.split(': *', line.strip(), 2)
