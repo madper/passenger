@@ -1,6 +1,6 @@
 # encoding: utf-8
 #  Phusion Passenger - https://www.phusionpassenger.com/
-#  Copyright (c) 2010-2016 Phusion Holding B.V.
+#  Copyright (c) 2010-2017 Phusion Holding B.V.
 #
 #  "Passenger", "Phusion Passenger" and "Union Station" are registered
 #  trademarks of Phusion Holding B.V.
@@ -177,7 +177,8 @@ task :compile_app => dependencies do
       :flags => [
         "-DSTANDALONE",
         LIBEV_CFLAGS,
-        LIBUV_CFLAGS
+        LIBUV_CFLAGS,
+        websocketpp_cflags
       ]
     )
     create_cxx_executable(exe,
@@ -190,6 +191,7 @@ task :compile_app => dependencies do
         LIBBOOST_OXT_LINKARG,
         libev_libs,
         libuv_libs,
+        websocketpp_libs,
         PlatformInfo.curl_libs,
         PlatformInfo.zlib_libs,
         PlatformInfo.crypto_libs,

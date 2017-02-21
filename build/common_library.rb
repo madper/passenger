@@ -1,6 +1,6 @@
 # encoding: utf-8
 #  Phusion Passenger - https://www.phusionpassenger.com/
-#  Copyright (c) 2010-2016 Phusion Holding B.V.
+#  Copyright (c) 2010-2017 Phusion Holding B.V.
 #
 #  "Passenger", "Phusion Passenger" and "Union Station" are registered
 #  trademarks of Phusion Holding B.V.
@@ -230,6 +230,17 @@ else
   def libuv_libs
     string_option('LIBUV_LIBS', '-luv')
   end
+end
+
+
+########## WebSocket++ ##########
+
+def websocketpp_cflags
+  '-Isrc/cxx_supportlib/vendor-copy/websocketpp'
+end
+
+def websocketpp_libs
+  nil
 end
 
 

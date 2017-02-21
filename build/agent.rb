@@ -1,5 +1,5 @@
 #  Phusion Passenger - https://www.phusionpassenger.com/
-#  Copyright (c) 2010-2016 Phusion Holding B.V.
+#  Copyright (c) 2010-2017 Phusion Holding B.V.
 #
 #  "Passenger", "Phusion Passenger" and "Union Station" are registered
 #  trademarks of Phusion Holding B.V.
@@ -60,6 +60,7 @@ AGENT_OBJECTS.each_pair do |object, source|
       AGENT_CFLAGS,
       LIBEV_CFLAGS,
       LIBUV_CFLAGS,
+      websocketpp_cflags,
       PlatformInfo.curl_flags,
       PlatformInfo.zlib_flags
     ]
@@ -87,6 +88,7 @@ file(AGENT_TARGET => dependencies) do
     :flags => [
       libev_libs,
       libuv_libs,
+      websocketpp_libs,
       PlatformInfo.curl_libs,
       PlatformInfo.zlib_libs,
       PlatformInfo.crypto_libs,
