@@ -29,17 +29,13 @@
 #include <oxt/tracable_exception.hpp>
 #include <string>
 #include <stdexcept>
-#include <cerrno>
-
-#include <dirent.h>
 
 #include <Constants.h>
 #include <Exceptions.h>
 #include <Logging.h>
 #include <DataStructures/StringKeyTable.h>
+#include <Utils.h>
 #include <Utils/StrIntUtils.h>
-#include <Utils/IOUtils.h>
-#include <Utils/ScopeGuard.h>
 #include <Utils/SystemMetricsCollector.h>
 #include <Core/SpawningKit/Config.h>
 #include <Core/SpawningKit/Journey.h>
@@ -57,230 +53,147 @@ using namespace oxt;
 
 class SpawnException: public oxt::tracable_exception {
 public:
-	enum ErrorKind {
+	enum ErrorCategory {
 		INTERNAL_ERROR,
+		FILE_SYSTEM_ERROR,
 		OPERATING_SYSTEM_ERROR,
 		IO_ERROR,
 		TIMEOUT_ERROR,
 
-		UNKNOWN_ERROR_KIND,
-		DETERMINE_ERROR_KIND_FROM_RESPONSE_DIR
+		UNKNOWN_ERROR_CATEGORY
 	};
 
 private:
+	ErrorCategory category;
 	Journey journey;
-	ErrorKind errorKind;
+	Config config;
+
 	string summary;
+	string lowLevelErrorMessage;
+	string stdoutAndErrData;
 	string problemDescription;
 	string solutionDescription;
+
 	string envvars;
 	string ulimits;
 	string systemMetrics;
-	string stdoutAndErrData;
-	Config config;
 	StringKeyTable<string> annotations;
 
-	static bool isFileSystemError(const std::exception &e) {
-		if (dynamic_cast<const FileSystemException *>(&e) != NULL) {
-			return true;
-		}
-
-		const SystemException *sysEx = dynamic_cast<const SystemException *>(&e);
-		if (sysEx != NULL) {
-			return sysEx->code() == ENOENT
-				|| sysEx->code() == ENAMETOOLONG
-				|| sysEx->code() == EEXIST
-				|| sysEx->code() == EACCES;
-		}
-
-		return false;
-	}
-
-	static bool systemErrorIsActuallyIoError(JourneyStep failedJourneyStep) {
-		return failedJourneyStep == PASSENGER_CORE_CONNECT_TO_PRELOADER
-			|| failedJourneyStep == PASSENGER_CORE_SEND_COMMAND_TO_PRELOADER
-			|| failedJourneyStep == PASSENGER_CORE_READ_RESPONSE_FROM_PRELOADER;
-	}
-
-	static ErrorKind inferErrorKindFromAnotherException(const std::exception &e,
-		JourneyStep failedJourneyStep)
+	static string createDefaultSummary(ErrorCategory category,
+		const Journey &journey, const StaticString &lowLevelErrorMessage)
 	{
-		if (dynamic_cast<const SystemException *>(&e) != NULL) {
-			if (systemErrorIsActuallyIoError(failedJourneyStep)) {
-				return IO_ERROR;
-			} else {
-				return OPERATING_SYSTEM_ERROR;
+		switch (category) {
+		case TIMEOUT_ERROR:
+			// We only return a single error message instead of a customized
+			// one based on the failed step, because the timeout
+			// applies to the entire journey, not just to a specific step.
+			// A timeout at a specific step could be the result of a previous
+			// step taking too much time.
+			// The way to debug a timeout error is by looking at the timings
+			// of each step.
+			switch (journey.getType()) {
+			case START_PRELOADER:
+				return "A timeout occurred while preparing to start a preloader process.";
+			default:
+				return "A timeout occurred while spawning an application process";
 			}
-		} else if (dynamic_cast<const IOException *>(&e) != NULL) {
-			return IO_ERROR;
-		} else if (dynamic_cast<const TimeoutException *>(&e) != NULL) {
-			return TIMEOUT_ERROR;
-		} else {
-			return INTERNAL_ERROR;
-		}
-	}
-
-	static string createDefaultSummary(const std::exception &originalException,
-		const Journey &journey)
-	{
-		if (dynamic_cast<const TimeoutException *>(&originalException) != NULL) {
-			if (journey.type == JOURNEY_TYPE_START_PRELOADER) {
-				switch (journey.failedStep) {
-				case PASSENGER_CORE_PREPARATION:
-					return "A timeout occurred while preparing to start a preloader process.";
-				default:
-					return "A timeout occurred while starting a preloader process.";
-				}
-			} else {
-				switch (journey.failedStep) {
-				case PASSENGER_CORE_PREPARATION:
-					return "A timeout occurred while preparing to spawn an application process.";
-				case PASSENGER_CORE_CONNECT_TO_PRELOADER:
-					return "A timeout occurred while connecting to the preloader process.";
-				case PASSENGER_CORE_SEND_COMMAND_TO_PRELOADER:
-					return "A timeout occurred while sending a command to the preloader process.";
-				case PASSENGER_CORE_READ_RESPONSE_FROM_PRELOADER:
-					return "A timeout occurred while reading a response from the preloader process.";
-				case PASSENGER_CORE_PARSE_RESPONSE_FROM_PRELOADER:
-					return "A timeout occurred while parsing a response from the preloader process.";
-				case PASSENGER_CORE_PROCESS_RESPONSE_FROM_PRELOADER:
-					return "A timeout occurred while processing a response from the preloader process.";
-				default:
-					return "A timeout occurred while spawning an application process.";
-				}
-			}
-		} else {
-			string errorKindPhraseWithIndefiniteArticle =
-					getErrorKindPhraseWithIndefiniteArticle(originalException, journey);
-			if (journey.type == JOURNEY_TYPE_START_PRELOADER) {
-				switch (journey.failedStep) {
-				case PASSENGER_CORE_PREPARATION:
-					return errorKindPhraseWithIndefiniteArticle
+		default:
+			string categoryPhraseWithIndefiniteArticle =
+				getErrorCategoryPhraseWithIndefiniteArticle(
+					category, true);
+			switch (journey.getType()) {
+			case START_PRELOADER:
+				switch (journey.getFirstFailedStep()) {
+				case SPAWNING_KIT_PREPARATION:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while preparing to start a preloader process: "
-						+ StaticString(originalException.what());
+						+ lowLevelErrorMessage;
 				default:
-					return errorKindPhraseWithIndefiniteArticle
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while starting a preloader process: "
-						+ StaticString(originalException.what());
+						+ lowLevelErrorMessage;
 				}
-			} else {
-				switch (journey.failedStep) {
-				case PASSENGER_CORE_PREPARATION:
-					return errorKindPhraseWithIndefiniteArticle
+			default:
+				switch (journey.getFirstFailedStep()) {
+				case SPAWNING_KIT_PREPARATION:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while preparing to spawn an application process: "
-						+ StaticString(originalException.what());
-				case PASSENGER_CORE_CONNECT_TO_PRELOADER:
-					return errorKindPhraseWithIndefiniteArticle
+						+ lowLevelErrorMessage;
+				case SPAWNING_KIT_FORK_SUBPROCESS:
+					return categoryPhraseWithIndefiniteArticle
+						+ " occurred while creating (forking) subprocess: "
+						+ lowLevelErrorMessage;
+				case SPAWNING_KIT_CONNECT_TO_PRELOADER:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while connecting to the preloader process: "
-						+ StaticString(originalException.what());
-				case PASSENGER_CORE_SEND_COMMAND_TO_PRELOADER:
-					return errorKindPhraseWithIndefiniteArticle
+						+ lowLevelErrorMessage;
+				case SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while sending a command to the preloader process: "
-						+ StaticString(originalException.what());
-				case PASSENGER_CORE_READ_RESPONSE_FROM_PRELOADER:
-					return errorKindPhraseWithIndefiniteArticle
+						+ lowLevelErrorMessage;
+				case SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while receiving a response from the preloader process: "
-						+ StaticString(originalException.what());
-				case PASSENGER_CORE_PARSE_RESPONSE_FROM_PRELOADER:
-					return errorKindPhraseWithIndefiniteArticle
+						+ lowLevelErrorMessage;
+				case SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while parsing a response from the preloader process: "
-						+ StaticString(originalException.what());
-				case PASSENGER_CORE_PROCESS_RESPONSE_FROM_PRELOADER:
-					return errorKindPhraseWithIndefiniteArticle
+						+ lowLevelErrorMessage;
+				case SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER:
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while processing a response from the preloader process: "
-						+ StaticString(originalException.what());
+						+ lowLevelErrorMessage;
 				default:
-					return errorKindPhraseWithIndefiniteArticle
+					return categoryPhraseWithIndefiniteArticle
 						+ " occurred while spawning an application process: "
-						+ StaticString(originalException.what());
+						+ lowLevelErrorMessage;
 				}
 			}
 		}
 	}
 
-	static StaticString getErrorKindPhraseWithIndefiniteArticle(const std::exception &e,
-		const Journey &journey)
+	static string createDefaultProblemDescription(ErrorCategory category,
+		const Journey &journey, const StaticString &lowLevelErrorMessage)
 	{
-		if (dynamic_cast<const IOException *>(&e) != NULL) {
-			return P_STATIC_STRING("An I/O error");
-		} else if (dynamic_cast<const SystemException *>(&e) != NULL) {
-			if (systemErrorIsActuallyIoError(journey.failedStep)) {
-				return P_STATIC_STRING("An I/O error");
-			} else {
-				return P_STATIC_STRING("An error");
-			}
-		} else {
-			return P_STATIC_STRING("An error");
-		}
-	}
+		StaticString categoryStringWithIndefiniteArticle =
+			getErrorCategoryPhraseWithIndefiniteArticle(category,
+				false);
 
-	static string wrapInParaAndMaybeAddErrorMessage(const string &message,
-		ErrorKind errorKind, const string &lowLevelErrorMessage)
-	{
-		if (lowLevelErrorMessage.empty()) {
-			return "<p>" + message + ".</p>";
-		} else if (errorKind == INTERNAL_ERROR) {
-			return "<p>" + message + ":</p>" +
-				"<pre>" + escapeHTML(lowLevelErrorMessage) + "</pre>";
-		} else if (errorKind == IO_ERROR) {
-			return "<p>" + message
-				+ ". The error reported by the I/O layer is:</p>" +
-				"<pre>" + escapeHTML(lowLevelErrorMessage) + "</pre>";
-		} else {
-			P_ASSERT_EQ(errorKind, OPERATING_SYSTEM_ERROR);
-			return "<p>" + message
-				+ ". The error reported by the operating system is:</p>" +
-				"<pre>" + escapeHTML(lowLevelErrorMessage) + "</pre>";
-		}
-	}
-
-	static string createDefaultProblemDescription(const Config *config,
-		const Journey &journey, ErrorKind errorKind,
-		const string &lowLevelErrorMessage = string())
-	{
-		StaticString errorKindString;
-
-		switch (errorKind) {
+		switch (category) {
 		case INTERNAL_ERROR:
 		case OPERATING_SYSTEM_ERROR:
 		case IO_ERROR:
-			switch (errorKind) {
-			case INTERNAL_ERROR:
-				errorKindString = P_STATIC_STRING("internal error");
-				break;
-			case OPERATING_SYSTEM_ERROR:
-				errorKindString = P_STATIC_STRING("operating system error");
-				break;
-			case IO_ERROR:
-				errorKindString = P_STATIC_STRING("I/O error");
-				break;
-			default:
-				P_BUG("Unsupported errorKind " + toString((int) errorKind));
-				break;
-			}
-
-			if (journey.type == JOURNEY_TYPE_START_PRELOADER) {
-				switch (journey.failedStep) {
-				case PASSENGER_CORE_PREPARATION:
+			switch (journey.getType()) {
+			case START_PRELOADER:
+				switch (journey.getFirstFailedStep()) {
+				case SPAWNING_KIT_PREPARATION:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " had to first start an internal"
 						" helper tool called the \"preloader\". But "
-						SHORT_PROGRAM_NAME " encountered an "
-						+ errorKindString + " while performing preparation"
-						" work",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_HANDSHAKE_PERFORM:
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle +
+						" while performing this preparation work",
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_FORK_SUBPROCESS:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application. But " SHORT_PROGRAM_NAME
+						" encountered " + categoryStringWithIndefiniteArticle
+						+ " while creating a subprocess",
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_HANDSHAKE_PERFORM:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " first started an internal"
 						" helper tool called the \"preloader\". But "
-						SHORT_PROGRAM_NAME " encountered an "
-						+ errorKindString + " while communicating with"
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle +
+						" while communicating with"
 						" this tool about its startup",
-						errorKind, lowLevelErrorMessage);
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_BEFORE_FIRST_EXEC:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
@@ -288,8 +201,9 @@ private:
 						SHORT_PROGRAM_NAME " had to first start an internal"
 						" helper tool called the \"preloader\". But"
 						" the subprocess which was supposed to execute this"
-						" preloader encountered an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" preloader encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_OS_SHELL:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
@@ -297,9 +211,9 @@ private:
 						SHORT_PROGRAM_NAME " had to first start an internal"
 						" helper tool called the \"preloader\", which"
 						" in turn had to be started through the operating"
-						" system (OS) shell. But the OS shell encountered"
-						" an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" system (OS) shell. But the OS shell encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL:
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL:
 					return wrapInParaAndMaybeAddErrorMessage(
@@ -309,231 +223,210 @@ private:
 						" helper tool called the \"preloader\", which"
 						" in turn had to be started through another internal"
 						" tool called the \"SpawnEnvSetupper\". But the"
-						" SpawnEnvSetupper encountered an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" SpawnEnvSetupper encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
+				case SUBPROCESS_EXEC_WRAPPER:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application through a "
+						SHORT_PROGRAM_NAME "-internal helper tool called"
+						" the \"wrapper\". But " SHORT_PROGRAM_NAME
+						" was unable to execute that helper tool"
+						" because it encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_WRAPPER_PREPARATION:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
-						" start the web application. In doing so, "
-						SHORT_PROGRAM_NAME " had to first start an internal"
-						" helper tool called the \"preloader\". But this"
-						" preloader encountered an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" start the web application through a "
+						SHORT_PROGRAM_NAME "-internal helper tool called"
+						" the \"wrapper\"). But that helper tool encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_APP_LOAD_OR_EXEC:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. But the application"
-						" itself (and not " SHORT_PROGRAM_NAME ") encountered"
-						" an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" itself (and not " SHORT_PROGRAM_NAME ") encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
+				case SUBPROCESS_LISTEN:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application. The application tried "
+						" to setup a socket for accepting connections,"
+						" but in doing so it encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				default:
-					P_BUG("Unsupported preloader journeyStep "
-						+ toString((int) journey.failedStep));
+					P_BUG("Unsupported preloader journey step "
+						<< toString((int) journey.getFirstFailedStep()));
 				}
-			} else {
-				switch (journey.failedStep) {
-				case PASSENGER_CORE_PREPARATION:
+			default:
+				switch (journey.getFirstFailedStep()) {
+				case SPAWNING_KIT_PREPARATION:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application, but " SHORT_PROGRAM_NAME
-						" encountered an " + errorKindString + " while performing"
-						" preparation work",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_CONNECT_TO_PRELOADER:
+						" encountered " + categoryStringWithIndefiniteArticle
+						+ " while performing preparation work",
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_FORK_SUBPROCESS:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application. But " SHORT_PROGRAM_NAME
+						" encountered " + categoryStringWithIndefiniteArticle
+						+ " while creating a subprocess",
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_CONNECT_TO_PRELOADER:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
-						SHORT_PROGRAM_NAME " encountered an " + errorKindString
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle
 						+ " while connecting to this helper process",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_SEND_COMMAND_TO_PRELOADER:
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
-						SHORT_PROGRAM_NAME " encountered an " + errorKindString
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle
 						+ " while sending a command to this helper process",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_READ_RESPONSE_FROM_PRELOADER:
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
-						SHORT_PROGRAM_NAME " encountered an " + errorKindString
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle
 						+ " while receiving a response to this helper process",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_PARSE_RESPONSE_FROM_PRELOADER:
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
-						SHORT_PROGRAM_NAME " encountered an " + errorKindString
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle
 						+ " while parsing a response from this helper process",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_PROCESS_RESPONSE_FROM_PRELOADER:
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
-						SHORT_PROGRAM_NAME " encountered an " + errorKindString
+						SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle
 						+ " while processing a response from this helper process",
-						errorKind, lowLevelErrorMessage);
-				case PASSENGER_CORE_HANDSHAKE_PERFORM:
+						category, lowLevelErrorMessage);
+				case SPAWNING_KIT_HANDSHAKE_PERFORM:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. Everything was looking OK,"
-						" but then suddenly " SHORT_PROGRAM_NAME " encountered"
-						" an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" but then suddenly " SHORT_PROGRAM_NAME " encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_BEFORE_FIRST_EXEC:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. " SHORT_PROGRAM_NAME
 						" launched a subprocess which was supposed to"
 						" execute the application, but instead that"
-						" subprocess encountered an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" subprocess encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_OS_SHELL:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application through the operating"
-						" system (OS) shell. But the OS shell encountered"
-						" an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" system (OS) shell. But the OS shell encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL:
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application through a "
-						SHORT_PROGRAM_NAME "-internal helper tool (in "
-						" technical terms, called the SpawnEnvSetupper)."
-						" But that helper tool encountered an "
-						+ errorKindString,
-						errorKind, lowLevelErrorMessage);
+						SHORT_PROGRAM_NAME "-internal helper tool called the"
+						" SpawnEnvSetupper. But that helper tool encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
+				case SUBPROCESS_EXEC_WRAPPER:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application through a "
+						SHORT_PROGRAM_NAME "-internal helper tool called"
+						" the \"wrapper\". But " SHORT_PROGRAM_NAME
+						" was unable to execute that helper tool because"
+						" it encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_WRAPPER_PREPARATION:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application through a "
-						SHORT_PROGRAM_NAME "-internal helper tool (in"
-						" technical terms, called the \"wrapper\"). But that"
-						" helper tool encountered an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						SHORT_PROGRAM_NAME "-internal helper tool called"
+						" the \"wrapper\". But that helper tool encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				case SUBPROCESS_APP_LOAD_OR_EXEC:
 					return wrapInParaAndMaybeAddErrorMessage(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. But the application"
-						" itself (and not " SHORT_PROGRAM_NAME ") encountered"
-						" an " + errorKindString,
-						errorKind, lowLevelErrorMessage);
+						" itself (and not " SHORT_PROGRAM_NAME ") encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
+				case SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application through a "
+						SHORT_PROGRAM_NAME "-internal helper tool called"
+						" the \"wrapper\". But the preloader encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
+				case SUBPROCESS_LISTEN:
+					return wrapInParaAndMaybeAddErrorMessage(
+						"The " PROGRAM_NAME " application server tried to"
+						" start the web application. The application tried "
+						" to setup a socket for accepting connections,"
+						" but in doing so it encountered "
+						+ categoryStringWithIndefiniteArticle,
+						category, lowLevelErrorMessage);
 				default:
-					P_BUG("Unrecognized journeyStep " + toString((int) journey.failedStep));
+					P_BUG("Unrecognized journey step " <<
+						toString((int) journey.getFirstFailedStep()));
 				}
 			}
 
 		case TIMEOUT_ERROR:
-			switch (journey.failedStep) {
-			case PASSENGER_CORE_PREPARATION:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application, but the preparation"
-					" work needed to this took too much time, so "
-					SHORT_PROGRAM_NAME " put a stop to that.</p>";
-			case PASSENGER_CORE_CONNECT_TO_PRELOADER:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application by communicating with a"
-					" helper process that we call a \"preloader\". However, "
-					SHORT_PROGRAM_NAME " was unable to connect to this helper"
-					" process within the time limit.</p>";
-			case PASSENGER_CORE_SEND_COMMAND_TO_PRELOADER:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application by communicating with a"
-					" helper process that we call a \"preloader\". However, "
-					SHORT_PROGRAM_NAME " was unable to send a command to"
-					" this helper process within the time limit.</p>";
-			case PASSENGER_CORE_READ_RESPONSE_FROM_PRELOADER:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application by communicating with a"
-					" helper process that we call a \"preloader\". However, "
-					" this helper process took too much time sending a"
-					" response.</p>";
-			case PASSENGER_CORE_PARSE_RESPONSE_FROM_PRELOADER:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application by communicating with a"
-					" helper process that we call a \"preloader\". However, "
-					SHORT_PROGRAM_NAME " was unable to parse the response"
-					" from this helper process within the time limit.</p>";
-			case PASSENGER_CORE_PROCESS_RESPONSE_FROM_PRELOADER:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application by communicating with a"
-					" helper process that we call a \"preloader\". However, "
-					SHORT_PROGRAM_NAME " was unable to process the response"
-					" from this helper process within the time limit.</p>";
-			case PASSENGER_CORE_HANDSHAKE_PERFORM:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application, but this took too"
-					" much time, so " SHORT_PROGRAM_NAME " put a stop to"
-					" that.</p>";
-			case SUBPROCESS_BEFORE_FIRST_EXEC:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application. " SHORT_PROGRAM_NAME
-					" launched a subprocess which was supposed to"
-					" execute the application, but that subprocess took"
-					" too much time doing that and didn't even begin to"
-					" execute the application. So " SHORT_PROGRAM_NAME
-					" put a stop to it.</p>";
-			case SUBPROCESS_OS_SHELL:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application through the operating"
-					" system (OS) shell. But the OS shell took too much"
-					" time to run or got stuck. So " SHORT_PROGRAM_NAME
-					" put a stop to it.</p>";
-			case SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application through a "
-					SHORT_PROGRAM_NAME "-internal helper tool (in "
-					" technical terms, called the SpawnEnvSetupper)."
-					" But that helper tool took too much time, so "
-					SHORT_PROGRAM_NAME " put a stop to it.</p>";
-			case SUBPROCESS_WRAPPER_PREPARATION:
-				return "<p>The " PROGRAM_NAME " application server tried"
-					" to start the web application through a "
-					SHORT_PROGRAM_NAME "-internal helper tool (in"
-					" technical terms, called the \"wrapper\"). But that"
-					" helper tool took too much time, so "
-					SHORT_PROGRAM_NAME " put a stop to it.</p>";
-			case SUBPROCESS_APP_LOAD_OR_EXEC:
-				if (config->appType == "node") {
-					return "<p>The " PROGRAM_NAME " application server tried"
-						" to start the web application. But the application"
-						" itself (and not " SHORT_PROGRAM_NAME ") took too"
-						" much time to start, got stuck, or never told "
-						SHORT_PROGRAM_NAME " that it is done starting."
-						" So " SHORT_PROGRAM_NAME " put a stop to it.</p>";
-				} else {
-					return "<p>The " PROGRAM_NAME " application server tried"
-						" to start the web application. But the application"
-						" itself (and not " SHORT_PROGRAM_NAME ") took too"
-						" much time to start or got stuck."
-						" So " SHORT_PROGRAM_NAME " put a stop to it.</p>";
-				}
-			default:
-				P_BUG("Unrecognized journeyStep " + toString((int) journey.failedStep));
-				return string(); // Never reached, shut up compiler warning.
-			}
+			// We only return a single error message instead of a customized
+			// one based on the failed step, because the timeout
+			// applies to the entire journey, not just to a specific step.
+			// A timeout at a specific step could be the result of a previous
+			// step taking too much time.
+			// The way to debug a timeout error is by looking at the timings
+			// of each step.
+			return "<p>The " PROGRAM_NAME " application server tried"
+				" to start the web application, but this took too much time,"
+				" so " SHORT_PROGRAM_NAME " put a stop to that.</p>";
 
 		default:
-			P_BUG("Unrecognized errorKind " + toString((int) errorKind));
+			P_BUG("Unrecognized error category " + toString((int) category));
 			return string(); // Never reached, shut up compiler warning.
 		}
 	}
 
-	static string createDefaultSolutionDescription(const Config *config,
-		JourneyStep failedJourneyStep, ErrorKind errorKind,
-		const std::exception *originalException = NULL)
+	static string createDefaultSolutionDescription(ErrorCategory category,
+		const Journey &journey, const Config &config)
 	{
 		string message;
 
-		switch (errorKind) {
+		switch (category) {
 		case INTERNAL_ERROR:
 			return "<p class=\"sole-solution\">"
 				"Unfortunately, " SHORT_PROGRAM_NAME " does not know"
@@ -543,46 +436,45 @@ private:
 				" consult <a href=\"" SUPPORT_URL "\">the " SHORT_PROGRAM_NAME
 				" support resources</a> for help.</p>";
 
+		case FILE_SYSTEM_ERROR:
+			return "<p class=\"sole-solution\">"
+				"Unfortunately, " SHORT_PROGRAM_NAME " does not know how to"
+				" solve this problem. But it looks like some kind of filesystem error."
+				" This generally means that you need to fix nonexistant"
+				" files/directories or fix filesystem permissions. Please"
+				" try troubleshooting the problem by studying the"
+				" <strong>error message</strong> and the"
+				" <strong>diagnostics</strong> reports.</p>";
+
 		case OPERATING_SYSTEM_ERROR:
 		case IO_ERROR:
-			if ((originalException != NULL && isFileSystemError(*originalException))) {
-				return "<p class=\"sole-solution\">"
-					"Unfortunately, " SHORT_PROGRAM_NAME " does not know how to"
-					" solve this problem. But it looks like some kind of filesystem error."
-					" This generally means that you need to fix nonexistant"
-					" files/directories or fix filesystem permissions. Please"
-					" try troubleshooting the problem by studying the"
-					" <strong>error message</strong> and the"
-					" <strong>diagnostics</strong> reports.</p>";
-			} else {
-				return "<div class=\"multiple-solutions\">"
+			return "<div class=\"multiple-solutions\">"
 
-					"<h3>Check whether the server is low on resources</h3>"
-					"<p>Maybe the server is currently low on resources. This would"
-					" cause errors to occur. Please study the <em>error"
-					" message</em> and the <em>diagnostics reports</em> to"
-					" verify whether this is the case. Key things to check for:</p>"
-					"<ul>"
-					"<li>Excessive CPU usage</li>"
-					"<li>Memory and swap</li>"
-					"<li>Ulimits</li>"
-					"</ul>"
-					"<p>If the server is indeed low on resources, find a way to"
-					" free up some resources.</p>"
+				"<h3>Check whether the server is low on resources</h3>"
+				"<p>Maybe the server is currently low on resources. This would"
+				" cause errors to occur. Please study the <em>error"
+				" message</em> and the <em>diagnostics reports</em> to"
+				" verify whether this is the case. Key things to check for:</p>"
+				"<ul>"
+				"<li>Excessive CPU usage</li>"
+				"<li>Memory and swap</li>"
+				"<li>Ulimits</li>"
+				"</ul>"
+				"<p>If the server is indeed low on resources, find a way to"
+				" free up some resources.</p>"
 
-					"<h3>Check your (filesystem) security settings</h3>"
-					"<p>Maybe security settings are preventing " SHORT_PROGRAM_NAME
-					" from doing the work it needs to do. Please check whether the"
-					" error may be caused by your system's security settings, or"
-					" whether it may be caused by wrong permissions on a file or"
-					" directory.</p>"
+				"<h3>Check your (filesystem) security settings</h3>"
+				"<p>Maybe security settings are preventing " SHORT_PROGRAM_NAME
+				" from doing the work it needs to do. Please check whether the"
+				" error may be caused by your system's security settings, or"
+				" whether it may be caused by wrong permissions on a file or"
+				" directory.</p>"
 
-					"<h3>Still no luck?</h3>"
-					"<p>Please try troubleshooting the problem by studying the"
-					" <em>diagnostics</em> reports.</p>"
+				"<h3>Still no luck?</h3>"
+				"<p>Please try troubleshooting the problem by studying the"
+				" <em>diagnostics</em> reports.</p>"
 
-					"</div>";
-			}
+				"</div>";
 
 		case TIMEOUT_ERROR:
 			message = "<div class=\"multiple-solutions\">"
@@ -595,11 +487,11 @@ private:
 				" in the <em>diagnostics</em> section to verify"
 				" whether server is indeed low on resources.</p>"
 				"<p>If so, then either increase the spawn timeout (currently"
-				" configured at " + toString(config->startTimeoutMsec / 1000)
+				" configured at " + toString(config.startTimeoutMsec / 1000)
 				+ " sec), or find a way to lower the server's resource"
 				" utilization.</p>";
 
-			switch (failedJourneyStep) {
+			switch (journey.getFirstFailedStep()) {
 			case SUBPROCESS_OS_SHELL:
 				message.append(
 					"<h3>Check whether your OS shell's startup scripts can"
@@ -610,7 +502,7 @@ private:
 					" scripts.</p>");
 				break;
 			case SUBPROCESS_APP_LOAD_OR_EXEC:
-				if (config->appType == "node") {
+				if (config.appType == "node") {
 					message.append(
 						"<h3>Check whether the application calls <code>http.Server.listen()</code></h3>"
 						"<p>" SHORT_PROGRAM_NAME " requires that the application calls"
@@ -638,18 +530,114 @@ private:
 			return message;
 
 		default:
-			return "(error generating solution description: unknown error kind)";
+			return "(error generating solution description: unknown error category)";
 		}
 	}
 
-	static string createProblemDescriptionFromPlainText(const StaticString &message) {
-		return "<pre class=\"plain\">" + escapeHTML(message) + "</pre>";
+	static bool isFileSystemError(const std::exception &e) {
+		if (dynamic_cast<const FileSystemException *>(&e) != NULL) {
+			return true;
+		}
+
+		const SystemException *sysEx = dynamic_cast<const SystemException *>(&e);
+		if (sysEx != NULL) {
+			return sysEx->code() == ENOENT
+				|| sysEx->code() == ENAMETOOLONG
+				|| sysEx->code() == EEXIST
+				|| sysEx->code() == EACCES;
+		}
+
+		return false;
 	}
 
-	static string createSolutionDescriptionFromPlainText(const StaticString &message) {
-		return "<div class=\"sole-solution\">"
-			"<pre class=\"plain\">" + escapeHTML(message) + "</pre>"
-			"</div>";
+	static bool systemErrorIsActuallyIoError(JourneyStep failedJourneyStep) {
+		return failedJourneyStep == SPAWNING_KIT_CONNECT_TO_PRELOADER
+			|| failedJourneyStep == SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER
+			|| failedJourneyStep == SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER;
+	}
+
+	static ErrorCategory inferErrorCategoryFromAnotherException(
+		const std::exception &e, JourneyStep failedJourneyStep)
+	{
+		if (dynamic_cast<const SystemException *>(&e) != NULL) {
+			if (systemErrorIsActuallyIoError(failedJourneyStep)) {
+				return IO_ERROR;
+			} else {
+				return OPERATING_SYSTEM_ERROR;
+			}
+		} else if (isFileSystemError(e)) {
+			return FILE_SYSTEM_ERROR;
+		} else if (dynamic_cast<const IOException *>(&e) != NULL) {
+			return IO_ERROR;
+		} else if (dynamic_cast<const TimeoutException *>(&e) != NULL) {
+			return TIMEOUT_ERROR;
+		} else {
+			return INTERNAL_ERROR;
+		}
+	}
+
+	static StaticString getErrorCategoryPhraseWithIndefiniteArticle(
+		ErrorCategory category, bool beginOfSentence)
+	{
+		switch (category) {
+		case INTERNAL_ERROR:
+			if (beginOfSentence) {
+				return P_STATIC_STRING("An internal error");
+			} else {
+				return P_STATIC_STRING("an internal error");
+			}
+		case FILE_SYSTEM_ERROR:
+			if (beginOfSentence) {
+				return P_STATIC_STRING("A file system error");
+			} else {
+				return P_STATIC_STRING("a file system error");
+			}
+		case OPERATING_SYSTEM_ERROR:
+			if (beginOfSentence) {
+				return P_STATIC_STRING("An operating system error");
+			} else {
+				return P_STATIC_STRING("an operating system error");
+			}
+		case IO_ERROR:
+			if (beginOfSentence) {
+				return P_STATIC_STRING("An I/O error");
+			} else {
+				return P_STATIC_STRING("an I/O error");
+			}
+		default:
+			P_BUG("Unsupported error category " + toString((int) category));
+			return StaticString();
+		}
+	}
+
+	static StaticString getErrorCategoryPhraseWithIndefiniteArticle(
+		const std::exception &e, const Journey &journey,
+		bool beginOfSentence)
+	{
+		ErrorCategory category =
+			inferErrorCategoryFromAnotherException(
+				e, journey.getFirstFailedStep());
+		return getErrorCategoryPhraseWithIndefiniteArticle(category, beginOfSentence);
+	}
+
+	static string wrapInParaAndMaybeAddErrorMessage(const string &message,
+		ErrorCategory category, const string &lowLevelErrorMessage)
+	{
+		if (lowLevelErrorMessage.empty()) {
+			return "<p>" + message + ".</p>";
+		} else if (category == INTERNAL_ERROR || category == FILE_SYSTEM_ERROR) {
+			return "<p>" + message + ":</p>" +
+				"<pre>" + escapeHTML(lowLevelErrorMessage) + "</pre>";
+		} else if (category == IO_ERROR) {
+			return "<p>" + message
+				+ ". The error reported by the I/O layer is:</p>" +
+				"<pre>" + escapeHTML(lowLevelErrorMessage) + "</pre>";
+		} else {
+			P_ASSERT_EQ(category, OPERATING_SYSTEM_ERROR);
+			return "<p>" + message
+				+ ". The error reported by the operating system is:</p>" +
+				"<pre>" + escapeHTML(lowLevelErrorMessage) + "</pre>";
+		}
 	}
 
 	static string gatherEnvvars() {
@@ -684,164 +672,39 @@ private:
 		return string(stream.data(), stream.size());
 	}
 
-	static void doClosedir(DIR *dir) {
-		closedir(dir);
-	}
-
-	static ErrorKind stringToErrorKind(const StaticString &name) {
-		// We only support a limited number of values for security reasons.
-		// We don't want subprocesses to e.g. spoof DETERMINE_ERROR_KIND_FROM_RESPONSE_DIR.
-		if (name == P_STATIC_STRING("INTERNAL_ERROR")) {
-			return INTERNAL_ERROR;
-		} else if (name == P_STATIC_STRING("OPERATING_SYSTEM_ERROR")) {
-			return OPERATING_SYSTEM_ERROR;
-		} else if (name == P_STATIC_STRING("IO_ERROR")) {
-			return IO_ERROR;
-		} else if (name == P_STATIC_STRING("TIMEOUT_ERROR")) {
-			return TIMEOUT_ERROR;
-		} else {
-			return UNKNOWN_ERROR_KIND;
-		}
-	}
-
-	void loadInfoFromResponseDir(const string &responseDir,
-		bool loadExceptionInfoFromResponseDir,
-		bool determineErrorKindFromResponseDir)
-	{
-		DIR *dir = opendir(responseDir.c_str());
-		ScopeGuard guard(boost::bind(doClosedir, dir));
-		struct dirent *ent;
-		string *message;
-
-		while ((ent = readdir(dir)) != NULL) {
-			if (ent->d_name[0] != '.') {
-				try {
-					annotations.insert(ent->d_name,
-						Passenger::readAll(responseDir + "/" + ent->d_name));
-				} catch (const SystemException &) {
-					// Do nothing.
-				}
-			}
-		}
-
-		if (loadExceptionInfoFromResponseDir) {
-			if (annotations.lookup("error_summary", &message)) {
-				summary = *message;
-			}
-			if (annotations.lookup("error_problem_description.html", &message)) {
-				problemDescription = *message;
-			} else if (annotations.lookup("error_problem_description.txt", &message)) {
-				problemDescription = createProblemDescriptionFromPlainText(*message);
-			}
-			if (annotations.lookup("error_solution_description.html", &message)) {
-				solutionDescription = *message;
-			} else if (annotations.lookup("error_solution_description.txt", &message)) {
-				solutionDescription = createSolutionDescriptionFromPlainText(*message);
-			}
-			if (annotations.lookup("envvars", &message)) {
-				envvars = *message;
-			}
-			if (annotations.lookup("ulimits", &message)) {
-				ulimits = *message;
-			}
-
-			if (determineErrorKindFromResponseDir) {
-				if (annotations.lookup("error_kind", &message)) {
-					errorKind = stringToErrorKind(*message);
-				} else {
-					errorKind = INTERNAL_ERROR;
-				}
-			}
-		}
-
-		annotations.erase("error_summary");
-		annotations.erase("error_problem_description.html");
-		annotations.erase("error_problem_description.txt");
-		annotations.erase("error_solution_description.html");
-		annotations.erase("error_solution_description.txt");
-		annotations.erase("envvars");
-		annotations.erase("ulimits");
-		annotations.erase("error_kind");
-	}
-
 public:
-	SpawnException(const string &defaultSummary, const Config *_config,
-		const Journey &_journey, ErrorKind defaultErrorKind,
-		const string &lowLevelErrorMessage = string(),
-		const string &_stdoutAndErrData = string(),
-		const string &responseDir = string(),
-		bool loadExceptionInfoFromResponseDir = false)
-		: journey(_journey),
-		  errorKind(defaultErrorKind),
-		  summary(defaultSummary),
-		  systemMetrics(gatherSystemMetrics()),
-		  stdoutAndErrData(_stdoutAndErrData),
-		  config(*_config)
+	SpawnException(ErrorCategory _category, const Journey &_journey,
+		const Config *_config, const string &summary,
+		const string &_lowLevelErrorMessage = string(),
+		const string &_stdoutAndErrData = string())
+		: category(_category),
+		  journey(_journey),
+		  config(*_config),
+		  summary(summary),
+		  lowLevelErrorMessage(_lowLevelErrorMessage),
+		  stdoutAndErrData(_stdoutAndErrData)
 	{
-		#ifndef NDEBUG
-			assert(_journey.failedStep != UNKNOWN_JOURNEY_STEP);
-			if (defaultErrorKind == DETERMINE_ERROR_KIND_FROM_RESPONSE_DIR) {
-				assert(!responseDir.empty());
-				assert(loadExceptionInfoFromResponseDir);
-			}
-		#endif
-
-		if (!responseDir.empty()) {
-			// May modify errorSummary, problemDescription, solutionDescription,
-			// envvars, ulimits, errorKind
-			loadInfoFromResponseDir(responseDir, loadExceptionInfoFromResponseDir,
-				defaultErrorKind == DETERMINE_ERROR_KIND_FROM_RESPONSE_DIR);
-		}
-		if (problemDescription.empty()) {
-			problemDescription = createDefaultProblemDescription(_config,
-				_journey, errorKind, lowLevelErrorMessage);
-		}
-		if (solutionDescription.empty()) {
-			solutionDescription = createDefaultSolutionDescription(_config,
-				_journey.failedStep, errorKind);
-		}
-		if (envvars.empty()) {
-			envvars = gatherEnvvars();
-		}
-		if (ulimits.empty()) {
-			ulimits = gatherUlimits();
-		}
+		assert(_journey.getFirstFailedStep() != UNKNOWN_JOURNEY_STEP);
 		config.internStrings();
 	}
 
 	SpawnException(const std::exception &originalException,
-		const Config *_config, const Journey &_journey,
-		const string &_stdoutAndErrData = string(),
-		const string &responseDir = string())
-		: journey(_journey),
-		  errorKind(inferErrorKindFromAnotherException(originalException, _journey.failedStep)),
-		  summary(createDefaultSummary(originalException, _journey)),
-		  envvars(gatherEnvvars()),
-		  ulimits(gatherUlimits()),
-		  systemMetrics(gatherSystemMetrics()),
-		  stdoutAndErrData(_stdoutAndErrData),
-		  config(*_config)
+		const Journey &_journey, const Config *_config,
+		const string &_stdoutAndErrData = string())
+		: category(inferErrorCategoryFromAnotherException(
+		      originalException, _journey.getFirstFailedStep())),
+		  journey(_journey),
+		  config(*_config),
+		  summary(createDefaultSummary(
+		      category, _journey, originalException.what())),
+		  lowLevelErrorMessage(originalException.what()),
+		  stdoutAndErrData(_stdoutAndErrData)
 	{
-		assert(_journey.failedStep != UNKNOWN_JOURNEY_STEP);
-		if (!responseDir.empty()) {
-			loadInfoFromResponseDir(responseDir, false, false);
-		}
-		if (problemDescription.empty()) {
-			problemDescription = createDefaultProblemDescription(_config,
-				_journey, errorKind);
-		}
-		if (solutionDescription.empty()) {
-			solutionDescription = createDefaultSolutionDescription(_config,
-				_journey.failedStep, errorKind, &originalException);
-		}
+		assert(_journey.getFirstFailedStep() != UNKNOWN_JOURNEY_STEP);
 		config.internStrings();
 	}
 
 	virtual ~SpawnException() throw() {}
-
-	virtual const char *what() const throw() {
-		return summary.c_str();
-	}
 
 	const string &getProblemDescriptionHTML() const {
 		return problemDescription;
@@ -859,60 +722,84 @@ public:
 		solutionDescription = value;
 	}
 
+	SpawnException &finalize() {
+		if (problemDescription.empty()) {
+			problemDescription = createDefaultProblemDescription(
+				category, journey, lowLevelErrorMessage);
+		}
+		if (solutionDescription.empty()) {
+			solutionDescription = createDefaultSolutionDescription(
+				category, journey, config);
+		}
+		if (envvars.empty()) {
+			envvars = gatherEnvvars();
+		}
+		if (ulimits.empty()) {
+			ulimits = gatherUlimits();
+		}
+		if (systemMetrics.empty()) {
+			systemMetrics = gatherSystemMetrics();
+		}
+		return *this;
+	}
+
+
+	virtual const char *what() const throw() {
+		return summary.c_str();
+	}
+
+	ErrorCategory getErrorCategory() const {
+		return category;
+	}
+
 	const Journey &getJourney() const {
 		return journey;
-	}
-
-	ErrorKind getErrorKind() const {
-		return errorKind;
-	}
-
-	const string &getSystemMetrics() const {
-		return systemMetrics;
 	}
 
 	const Config &getConfig() const {
 		return config;
 	}
 
+
 	const string &getStdouterrData() const {
 		return stdoutAndErrData;
 	}
 
-	string operator[](const string &name) const {
-		return get(name);
+	const string &getEnvvars() const {
+		return envvars;
 	}
 
-	string get(const HashedStaticString &name) const {
-		return annotations.lookupCopy(name);
+	const string &getUlimits() const {
+		return ulimits;
 	}
 
-	void set(const HashedStaticString &name, const string &value) {
-		annotations.insert(name, value, true);
-	}
-
-
-	static StaticString errorKindToString(ErrorKind errorKind) {
-		switch (errorKind) {
-		case INTERNAL_ERROR:
-			return P_STATIC_STRING("INTERNAL_ERROR");
-		case OPERATING_SYSTEM_ERROR:
-			return P_STATIC_STRING("OPERATING_SYSTEM_ERROR");
-		case IO_ERROR:
-			return P_STATIC_STRING("IO_ERROR");
-		case TIMEOUT_ERROR:
-			return P_STATIC_STRING("TIMEOUT_ERROR");
-
-		case UNKNOWN_ERROR_KIND:
-			return P_STATIC_STRING("UNKNOWN_ERROR_KIND");
-		case DETERMINE_ERROR_KIND_FROM_RESPONSE_DIR:
-			return P_STATIC_STRING("DETERMINE_ERROR_KIND_FROM_RESPONSE_DIR");
-
-		default:
-			return P_STATIC_STRING("(invalid value)");
-		}
+	const string &getSystemMetrics() const {
+		return systemMetrics;
 	}
 };
+
+
+inline StaticString
+errorCategoryToString(SpawnException::ErrorCategory category) {
+	switch (category) {
+	case SpawnException::INTERNAL_ERROR:
+		return P_STATIC_STRING("INTERNAL_ERROR");
+	case SpawnException::FILE_SYSTEM_ERROR:
+		return P_STATIC_STRING("FILE_SYSTEM_ERROR");
+	case SpawnException::OPERATING_SYSTEM_ERROR:
+		return P_STATIC_STRING("OPERATING_SYSTEM_ERROR");
+	case SpawnException::IO_ERROR:
+		return P_STATIC_STRING("IO_ERROR");
+	case SpawnException::TIMEOUT_ERROR:
+		return P_STATIC_STRING("TIMEOUT_ERROR");
+
+	case SpawnException::UNKNOWN_ERROR_CATEGORY:
+		return P_STATIC_STRING("UNKNOWN_ERROR_CATEGORY");
+
+	default:
+		return P_STATIC_STRING("(invalid value)");
+	}
+}
 
 
 } // namespace SpawningKit

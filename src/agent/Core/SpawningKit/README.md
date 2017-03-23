@@ -24,6 +24,8 @@ In general, it is better if an application has explicit SpawningKit support, bec
 
 Luckily, it is not always necessary to modify the application. Wrappers are small programs that aid in loading applications written in specific languages, in particular interpreted languages because they allow modifying application behavior without code modifications. When a wrapper is used, SpawningKit executes the wrapper, not the actual application. The wrapper loads the application and modifies its behavior in such a way that SpawningKit support is added (e.g. ability to report HTML-formatted errors), without requiring modifications to the application code.
 
+Wrappers are only applicable to apps without explicit SpawningKit support.
+
 Passenger comes with a few wrappers for specific languages, but SpawningKit itself is more generic and requires the caller to specify which wrapper to use (if at all).
 
 For example, Ruby applications are typically spawned through the Passenger-supplied Ruby wrapper. The Ruby wrapper activates the Gemfile, loads the application, sets up a lightweight server that listens on a Unix domain socket, and reports this socket address back to SpawningKit.
@@ -49,6 +51,26 @@ Memory is saved because the preloader and its worker processes are able to share
 For example, in Ruby applications a significant amount of memory is taken up by the bytecode representation of dependent libraries (e.g. the Rails framework). Loading all the dependent libraries typically takes time in the order of many seconds. By using a preloader to fork worker processes (instead of starting the worker processes without a preloader), all worker processes can share the memory taken up by the dependent libraries, as well as the application code itself and possibly any resources that the preloder loaded (e.g. a geo-IP database loaded from a file). Forking a worker process from a preloader is also extremely fast, in the order of milliseconds -- much faster than starting a worker processes without a preloader.
 
 SpawningKit provides facilities to use this preforking technique. Obviously, this technique can only be used if the target programming language actually supports forking. This is the case with e.g. C, Ruby (using MRI) and Python (using CPython), but not with e.g. Node.js, Ruby (using JRuby), Go and anything running on the JVM.
+
+Using this technique requires either application modification, or the existance of a wrapper that supports this technique.
+
+### The start command
+
+Regardless of whether SpawningKit is used to spawn an application with or without explicit SpawningKit support, and regardless of whether a wrapper is used and whether the application/wrapper can function as a preloader, SpawningKit asks the caller to supply a "start command" that tells it how to execute the wrapper or the application. SpawningKit then uses the handshaking procedure (see: The spawning journey) to to communicate with the wrapper/application whether it should start in preloader mode or not.
+
+### Summary with examples
+
+To help you better understand the concepts, the following table displays an example of how all the concepts map to supported languages.
+
+~~~
+| Generic apps (no   | SpawningKit-enabled,   | SpawningKit-enabled,  |
+| explicit Passenger | wrapper available      | no wrapper available  |
+| support)           |                        |                       |
+| ------------------ | ---------------------- | --------------------- |
+| Go app without     | Ruby, Python, Node.js, | Go, Ruby, Perl, all   |
+| modifications      | Meteor, Perl, all      | with modifications    |
+|                    | without modifications  |                       |
+~~~
 
 ## The spawning journey
 

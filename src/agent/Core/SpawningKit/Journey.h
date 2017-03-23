@@ -29,9 +29,13 @@
 #include <map>
 #include <utility>
 
+#include <oxt/macros.hpp>
+#include <oxt/backtrace.hpp>
+
 #include <Logging.h>
 #include <StaticString.h>
 #include <Utils/StrIntUtils.h>
+#include <Utils/SystemTime.h>
 
 namespace Passenger {
 namespace SpawningKit {
@@ -103,88 +107,97 @@ enum JourneyStepState {
 	STEP_ERRORED
 };
 
-inline StaticString journeyStepToString(JourneyStep step);
-inline StaticString journeyStepStateToString(JourneyStepState state);
-inline JourneyStep stringToPreloaderJourneyStep(const StaticString &name);
-inline JourneyStep stringToSubprocessJourneyStep(const StaticString &name);
+struct JourneyStepInfo {
+	JourneyStepState state;
+	MonotonicTimeUsec startTime;
+	MonotonicTimeUsec endTime;
 
-inline JourneyStep
-getFirstSubprocessJourneyStep() {
-	return SUBPROCESS_BEFORE_FIRST_EXEC;
-}
+	JourneyStepInfo(JourneyStepState _state = STEP_NOT_STARTED)
+		: state(_state),
+		  startTime(0),
+		  endTime(0)
+		{ }
+};
 
-inline JourneyStep
-getLastSubprocessJourneyStep() {
-	return SUBPROCESS_FINISH;
-}
+inline OXT_PURE StaticString journeyStepToString(JourneyStep step);
+inline OXT_PURE StaticString journeyStepStateToString(JourneyStepState state);
+inline OXT_PURE JourneyStep stringToPreloaderJourneyStep(const StaticString &name);
+inline OXT_PURE JourneyStep stringToSubprocessJourneyStep(const StaticString &name);
+
+inline OXT_PURE JourneyStep getFirstSubprocessJourneyStep() { return SUBPROCESS_BEFORE_FIRST_EXEC; }
+inline OXT_PURE JourneyStep getLastSubprocessJourneyStep() { return SUBPROCESS_FINISH; }
 
 
 class Journey {
 public:
-	typedef map<JourneyStep, JourneyStepState> Map;
+	typedef map<JourneyStep, JourneyStepInfo> Map;
 
 private:
 	JourneyType type;
 	bool usingWrapper;
 	Map steps;
 
-	void fillInStepsForSpawnDirectlyJourney() {
-		steps.insert(make_pair(SPAWNING_KIT_PREPARATION, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_FORK_SUBPROCESS, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_HANDSHAKE_PERFORM, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_FINISH, STEP_NOT_STARTED));
+	void insertStep(JourneyStep step) {
+		steps.insert(make_pair(step, JourneyStepInfo()));
+	}
 
-		steps.insert(make_pair(SUBPROCESS_BEFORE_FIRST_EXEC, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_OS_SHELL, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL, STEP_NOT_STARTED));
+	void fillInStepsForSpawnDirectlyJourney() {
+		insertStep(SPAWNING_KIT_PREPARATION);
+		insertStep(SPAWNING_KIT_FORK_SUBPROCESS);
+		insertStep(SPAWNING_KIT_HANDSHAKE_PERFORM);
+		insertStep(SPAWNING_KIT_FINISH);
+
+		insertStep(SUBPROCESS_BEFORE_FIRST_EXEC);
+		insertStep(SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL);
+		insertStep(SUBPROCESS_OS_SHELL);
+		insertStep(SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL);
 		if (usingWrapper) {
-			steps.insert(make_pair(SUBPROCESS_EXEC_WRAPPER, STEP_NOT_STARTED));
-			steps.insert(make_pair(SUBPROCESS_WRAPPER_PREPARATION, STEP_NOT_STARTED));
+			insertStep(SUBPROCESS_EXEC_WRAPPER);
+			insertStep(SUBPROCESS_WRAPPER_PREPARATION);
 		}
-		steps.insert(make_pair(SUBPROCESS_APP_LOAD_OR_EXEC, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_LISTEN, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_FINISH, STEP_NOT_STARTED));
+		insertStep(SUBPROCESS_APP_LOAD_OR_EXEC);
+		insertStep(SUBPROCESS_LISTEN);
+		insertStep(SUBPROCESS_FINISH);
 	}
 
 	void fillInStepsForPreloaderStartJourney() {
-		steps.insert(make_pair(SPAWNING_KIT_PREPARATION, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_FORK_SUBPROCESS, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_HANDSHAKE_PERFORM, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_FINISH, STEP_NOT_STARTED));
+		insertStep(SPAWNING_KIT_PREPARATION);
+		insertStep(SPAWNING_KIT_FORK_SUBPROCESS);
+		insertStep(SPAWNING_KIT_HANDSHAKE_PERFORM);
+		insertStep(SPAWNING_KIT_FINISH);
 
-		steps.insert(make_pair(SUBPROCESS_BEFORE_FIRST_EXEC, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_OS_SHELL, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL, STEP_NOT_STARTED));
+		insertStep(SUBPROCESS_BEFORE_FIRST_EXEC);
+		insertStep(SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL);
+		insertStep(SUBPROCESS_OS_SHELL);
+		insertStep(SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL);
 		if (usingWrapper) {
-			steps.insert(make_pair(SUBPROCESS_EXEC_WRAPPER, STEP_NOT_STARTED));
-			steps.insert(make_pair(SUBPROCESS_WRAPPER_PREPARATION, STEP_NOT_STARTED));
+			insertStep(SUBPROCESS_EXEC_WRAPPER);
+			insertStep(SUBPROCESS_WRAPPER_PREPARATION);
 		}
-		steps.insert(make_pair(SUBPROCESS_APP_LOAD_OR_EXEC, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_LISTEN, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_FINISH, STEP_NOT_STARTED));
+		insertStep(SUBPROCESS_APP_LOAD_OR_EXEC);
+		insertStep(SUBPROCESS_LISTEN);
+		insertStep(SUBPROCESS_FINISH);
 	}
 
 	void fillInStepsForSpawnThroughPreloaderJourney() {
-		steps.insert(make_pair(SPAWNING_KIT_PREPARATION, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_FORK_SUBPROCESS, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_CONNECT_TO_PRELOADER, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_HANDSHAKE_PERFORM, STEP_NOT_STARTED));
-		steps.insert(make_pair(SPAWNING_KIT_FINISH, STEP_NOT_STARTED));
+		insertStep(SPAWNING_KIT_PREPARATION);
+		insertStep(SPAWNING_KIT_FORK_SUBPROCESS);
+		insertStep(SPAWNING_KIT_CONNECT_TO_PRELOADER);
+		insertStep(SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER);
+		insertStep(SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER);
+		insertStep(SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER);
+		insertStep(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
+		insertStep(SPAWNING_KIT_HANDSHAKE_PERFORM);
+		insertStep(SPAWNING_KIT_FINISH);
 
-		steps.insert(make_pair(PRELOADER_PREPARATION, STEP_NOT_STARTED));
-		steps.insert(make_pair(PRELOADER_FORK_SUBPROCESS, STEP_NOT_STARTED));
-		steps.insert(make_pair(PRELOADER_SEND_RESPONSE, STEP_NOT_STARTED));
-		steps.insert(make_pair(PRELOADER_FINISH, STEP_NOT_STARTED));
+		insertStep(PRELOADER_PREPARATION);
+		insertStep(PRELOADER_FORK_SUBPROCESS);
+		insertStep(PRELOADER_SEND_RESPONSE);
+		insertStep(PRELOADER_FINISH);
 
-		steps.insert(make_pair(SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_LISTEN, STEP_NOT_STARTED));
-		steps.insert(make_pair(SUBPROCESS_FINISH, STEP_NOT_STARTED));
+		insertStep(SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER);
+		insertStep(SUBPROCESS_LISTEN);
+		insertStep(SUBPROCESS_FINISH);
 	}
 
 public:
@@ -212,41 +225,77 @@ public:
 		return type;
 	}
 
-	const Map &getSteps() const {
-		return steps;
+	const JourneyStepInfo &getStepInfo(JourneyStep step) const {
+		Map::const_iterator it = steps.find(step);
+		if (it == steps.end()) {
+			throw RuntimeException("Invalid step " + journeyStepToString(step));
+		}
+
+		return it->second;
 	}
 
-	void setStepState(JourneyStep step, JourneyStepState state) {
+	JourneyStep getFirstFailedStep() const {
+		Map::const_iterator it, end = steps.end();
+		for (it = steps.begin(); it != end; it++) {
+			if (it->second.state == STEP_ERRORED) {
+				return it->first;
+			}
+		}
+
+		return UNKNOWN_JOURNEY_STEP;
+	}
+
+	void setStepInProgress(JourneyStep step) {
 		Map::iterator it = steps.find(step);
 		if (it == steps.end()) {
 			throw RuntimeException("Invalid step " + journeyStepToString(step));
 		}
 
-		switch (it->second) {
-		case STEP_NOT_STARTED:
-			it->second = state;
-			break;
-		case STEP_IN_PROGRESS:
-			if (state == STEP_PERFORMED || state == STEP_ERRORED) {
-				it->second = state;
-			} else {
-				throw RuntimeException("Unable to change state for in-progress journey step "
-					+ journeyStepToString(step) + " to " + journeyStepStateToString(state));
-			}
-			break;
-		case STEP_PERFORMED:
-		case STEP_ERRORED:
+		if (it->second.state == STEP_NOT_STARTED) {
+			it->second.state = STEP_IN_PROGRESS;
+			it->second.startTime =
+				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+		} else {
 			throw RuntimeException("Unable to change state for completed journey step "
 				+ journeyStepToString(step));
-		default:
-			P_BUG("Unknown journey step state " << toString((int) it->second));
-			break;
+		}
+	}
+
+	void setStepPerformed(JourneyStep step) {
+		Map::iterator it = steps.find(step);
+		if (it == steps.end()) {
+			throw RuntimeException("Invalid step " + journeyStepToString(step));
+		}
+
+		if (it->second.state == STEP_IN_PROGRESS) {
+			it->second.state = STEP_PERFORMED;
+			it->second.endTime =
+				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+		} else {
+			throw RuntimeException("Unable to change state for journey step "
+				+ journeyStepToString(step) + " because it wasn't already in progress");
+		}
+	}
+
+	void setStepErrored(JourneyStep step) {
+		Map::iterator it = steps.find(step);
+		if (it == steps.end()) {
+			throw RuntimeException("Invalid step " + journeyStepToString(step));
+		}
+
+		if (it->second.state == STEP_IN_PROGRESS) {
+			it->second.state = STEP_ERRORED;
+			it->second.endTime =
+				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+		} else {
+			throw RuntimeException("Unable to change state for journey step "
+				+ journeyStepToString(step) + " because it wasn't already in progress");
 		}
 	}
 };
 
 
-inline StaticString
+inline OXT_PURE StaticString
 journeyStepToString(JourneyStep step) {
 	switch (step) {
 	case SPAWNING_KIT_PREPARATION:
@@ -301,7 +350,7 @@ journeyStepToString(JourneyStep step) {
 	}
 }
 
-inline StaticString
+inline OXT_PURE StaticString
 journeyStepStateToString(JourneyStepState state) {
 	switch (state) {
 	case STEP_NOT_STARTED:
@@ -317,7 +366,7 @@ journeyStepStateToString(JourneyStepState state) {
 	}
 }
 
-inline JourneyStep
+inline OXT_PURE JourneyStep
 stringToPreloaderJourneyStep(const StaticString &name) {
 	if (name == P_STATIC_STRING("PRELOADER_PREPARATION")) {
 		return PRELOADER_PREPARATION;
@@ -332,7 +381,7 @@ stringToPreloaderJourneyStep(const StaticString &name) {
 	}
 }
 
-inline JourneyStep
+inline OXT_PURE JourneyStep
 stringToSubprocessJourneyStep(const StaticString &name) {
 	if (name == P_STATIC_STRING("SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL")) {
 		return SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL;

@@ -365,7 +365,6 @@ private:
 
 	void throwSpawnExceptionBecauseOfPortFindingTimeout() {
 		assert(config->genericApp || config->findFreePort);
-		session.journey.failedStep = PASSENGER_CORE_PREPARATION;
 		SpawnException e(
 			"A timeout occurred while preparing to spawn an application process.",
 			config,
@@ -425,7 +424,6 @@ private:
 			maxPortRange = context->maxPortRange;
 		}
 
-		session.journey.failedStep = PASSENGER_CORE_PREPARATION;
 		SpawnException e(
 			"Could not find a free port to spawn the application on",
 			config,
@@ -470,8 +468,8 @@ public:
 		try {
 			session.context = context;
 			session.config = config;
-			session.journey.currentStep = PASSENGER_CORE_PREPARATION;
 			session.timeoutUsec = config->startTimeoutMsec * 1000;
+			session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
 			timer.start();
 
 			resolveUserAndGroup();
@@ -491,11 +489,12 @@ public:
 
 			adjustTimeout();
 
-			session.journey.doneSteps.insert(PASSENGER_CORE_PREPARATION);
+			session.journey.setStepPerformed(SPAWNING_KIT_PREPARATION);
 		} catch (const SpawnException &) {
+			session.journey.setStepErrored(SPAWNING_KIT_PREPARATION);
 			throw;
 		} catch (const std::exception &e) {
-			session.journey.failedStep = PASSENGER_CORE_PREPARATION;
+			session.journey.setStepErrored(SPAWNING_KIT_PREPARATION);
 			throw SpawnException(e, config, session.journey);
 		}
 	}

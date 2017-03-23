@@ -18,6 +18,13 @@ namespace SpawningKit {
 using namespace std;
 
 
+// The following hints are available:
+//
+// @require_non_empty
+// @pass_during_handshake
+// @only_meaningful_if
+// @only_pass_during_handshake_if
+//
 // - begin hinted parseable class -
 class Config {
 private:
@@ -84,7 +91,8 @@ public:
 
 	/**
 	 * If the app is not generic (`!genericApp`), then this specifies
-	 * whether SpawningKit should find a free port to pass to the app.
+	 * whether SpawningKit should find a free port to pass to the app
+	 * so that it can listen on that port.
 	 * This is always done if the app is generic, but *can* be done
 	 * for non-generic apps as well.
 	 *
