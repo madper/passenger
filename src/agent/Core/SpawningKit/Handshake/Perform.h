@@ -39,6 +39,7 @@
 #include <cerrno>
 
 #include <sys/types.h>
+#include <dirent.h>
 
 #include <Constants.h>
 #include <Exceptions.h>
@@ -229,7 +230,7 @@ private:
 				string(),
 				string(),
 				getStdoutErrData());
-			loadProblemSolutionAndAnnotationsFromResponseDir(e);
+			loadErrorMessagesAndAnnotationsFromResponseDir(e);
 			throw e.finalize();
 		}
 
@@ -243,7 +244,7 @@ private:
 				string(),
 				string(),
 				getStdoutErrData());
-			loadProblemSolutionAndAnnotationsFromResponseDir(e);
+			loadErrorMessagesAndAnnotationsFromResponseDir(e);
 			throw e.finalize();
 		}
 
@@ -322,7 +323,7 @@ private:
 			"The web application aborted with an error during startup.",
 			string(),
 			getStdoutErrData());
-		loadProblemSolutionAndAnnotationsFromResponseDir(e);
+		loadErrorMessagesAndAnnotationsFromResponseDir(e);
 		throw e.finalize();
 	}
 
@@ -770,7 +771,7 @@ private:
 		const string &stepDir) const
 	{
 		string summary;
-		string value = readAll(stepDir + "/state");
+		string value = strip(readAll(stepDir + "/state"));
 		JourneyStepState state = stringToJourneyStepState(value);
 
 		if (session.journey.getStepInfo(step).state == state) {
@@ -979,13 +980,56 @@ private:
 		}
 	}
 
-	void loadProblemSolutionAndAnnotationsFromResponseDir(SpawnException &e) const {
-		// TODO
+	void loadErrorMessagesAndAnnotationsFromResponseDir(SpawnException &e) const {
+		const string &responseDir = session.responseDir;
+
+		if (fileExists(responseDir + "/error_summary")) {
+			e.setSummary(strip(readAll(responseDir + "/error_summary")));
+		}
+
+		if (fileExists(responseDir + "/error_problem_description.html")) {
+			e.setProblemDescriptionHTML(readAll(responseDir + "/error_problem_description.html"));
+		} else if (fileExists(responseDir + "/error_problem_description.txt")) {
+			e.setProblemDescriptionHTML(escapeHTML(strip(readAll(
+				responseDir + "/error_problem_description.txt"))));
+		}
+
+		if (fileExists(responseDir + "/error_solution_description.html")) {
+			e.setSolutionDescriptionHTML(readAll(responseDir + "/error_solution_description.html"));
+		} else if (fileExists(responseDir + "/error_solution_description.txt")) {
+			e.setSolutionDescriptionHTML(escapeHTML(strip(readAll(
+				responseDir + "/error_solution_description.txt"))));
+		}
+
+		if (fileExists(responseDir + "/envvars")) {
+			e.setEnvvars(readAll(responseDir + "/envvars"));
+		}
+		if (fileExists(responseDir + "/ulimits")) {
+			e.setUlimits(readAll(responseDir + "/ulimits"));
+		}
+
 		loadAnnotationsFromResponseDir(e);
 	}
 
+	static void doClosedir(DIR *dir) {
+		closedir(dir);
+	}
+
 	void loadAnnotationsFromResponseDir(SpawnException &e) const {
-		// TODO
+		string path = session.responseDir + "/annotations";
+		DIR *dir = opendir(path.c_str());
+		if (dir == NULL) {
+			return;
+		}
+
+		ScopeGuard guard(boost::bind(doClosedir, dir));
+		struct dirent *ent;
+		while ((ent = readdir(dir)) != NULL) {
+			if (ent->d_name[0] != '.') {
+				e.setAnnotation(ent->d_name, strip(
+					Passenger::readAll(path + "/" + ent->d_name)));
+			}
+		}
 	}
 
 	void cleanup() {

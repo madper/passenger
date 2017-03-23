@@ -678,6 +678,10 @@ public:
 
 	virtual ~SpawnException() throw() {}
 
+	void setSummary(const string &value) {
+		summary = value;
+	}
+
 	const string &getProblemDescriptionHTML() const {
 		return problemDescription;
 	}
@@ -745,12 +749,29 @@ public:
 		return envvars;
 	}
 
+	void setEnvvars(const string &value) {
+		envvars = value;
+	}
+
 	const string &getUlimits() const {
 		return ulimits;
 	}
 
+	void setUlimits(const string &value) {
+		ulimits = value;
+	}
+
 	const string &getSystemMetrics() const {
 		return systemMetrics;
+	}
+
+
+	const StringKeyTable<string> &getAnnotations() const {
+		return annotations;
+	}
+
+	void setAnnotation(const HashedStaticString &name, const string &value) {
+		annotations.insert(name, value, true);
 	}
 };
 
