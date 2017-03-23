@@ -137,9 +137,7 @@ public:
 		Config config(options);
 		Json::Value extraArgs;
 		Result result;
-		HandshakeSession session;
-		session.context = context;
-		session.config = &config;
+		HandshakeSession session(context, config, SPAWN_DIRECTLY);
 
 		setConfigFromAppPoolOptions(config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();

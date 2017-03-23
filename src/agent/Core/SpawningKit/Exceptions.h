@@ -82,6 +82,8 @@ private:
 	static string createDefaultSummary(ErrorCategory category,
 		const Journey &journey, const StaticString &lowLevelErrorMessage)
 	{
+		string message;
+
 		switch (category) {
 		case TIMEOUT_ERROR:
 			// We only return a single error message instead of a customized
@@ -93,9 +95,11 @@ private:
 			// of each step.
 			switch (journey.getType()) {
 			case START_PRELOADER:
-				return "A timeout occurred while preparing to start a preloader process.";
+				message = "A timeout occurred while starting a preloader process";
+				break;
 			default:
-				return "A timeout occurred while spawning an application process";
+				message = "A timeout occurred while spawning an application process";
+				break;
 			}
 		default:
 			string categoryPhraseWithIndefiniteArticle =
@@ -105,51 +109,59 @@ private:
 			case START_PRELOADER:
 				switch (journey.getFirstFailedStep()) {
 				case SPAWNING_KIT_PREPARATION:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while preparing to start a preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while preparing to start a preloader process";
+					break;
 				default:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while starting a preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while starting a preloader process";
+					break;
 				}
 			default:
 				switch (journey.getFirstFailedStep()) {
 				case SPAWNING_KIT_PREPARATION:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while preparing to spawn an application process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while preparing to spawn an application process";
+					break;
 				case SPAWNING_KIT_FORK_SUBPROCESS:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while creating (forking) subprocess: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while creating (forking) subprocess";
+					break;
 				case SPAWNING_KIT_CONNECT_TO_PRELOADER:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while connecting to the preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while connecting to the preloader process";
+					break;
 				case SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while sending a command to the preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while sending a command to the preloader process";
+					break;
 				case SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while receiving a response from the preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while receiving a response from the preloader process";
+					break;
 				case SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while parsing a response from the preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while parsing a response from the preloader process";
+					break;
 				case SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while processing a response from the preloader process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while processing a response from the preloader process";
+					break;
 				default:
-					return categoryPhraseWithIndefiniteArticle
-						+ " occurred while spawning an application process: "
-						+ lowLevelErrorMessage;
+					message = categoryPhraseWithIndefiniteArticle
+						+ " occurred while spawning an application process";
+					break;
 				}
 			}
 		}
+
+		if (lowLevelErrorMessage.empty()) {
+			message.append(".");
+		} else {
+			message.append(": ");
+			message.append(lowLevelErrorMessage);
+		}
+		return message;
 	}
 
 	static string createDefaultProblemDescription(ErrorCategory category,
@@ -674,7 +686,7 @@ private:
 
 public:
 	SpawnException(ErrorCategory _category, const Journey &_journey,
-		const Config *_config, const string &summary,
+		const Config *_config, const string &summary = string(),
 		const string &_lowLevelErrorMessage = string(),
 		const string &_stdoutAndErrData = string())
 		: category(_category),
@@ -723,6 +735,10 @@ public:
 	}
 
 	SpawnException &finalize() {
+		if (summary.empty()) {
+			summary = createDefaultSummary(category, journey,
+				lowLevelErrorMessage);
+		}
 		if (problemDescription.empty()) {
 			problemDescription = createDefaultProblemDescription(
 				category, journey, lowLevelErrorMessage);

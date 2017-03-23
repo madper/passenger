@@ -234,9 +234,7 @@ private:
 		Config config(options);
 		Json::Value extraArgs;
 		Result result;
-		HandshakeSession session(JOURNEY_TYPE_START_PRELOADER);
-		session.context = context;
-		session.config = &config;
+		HandshakeSession session(context, config, START_PRELOADER);
 
 		setConfigFromAppPoolOptions(config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();
@@ -938,9 +936,7 @@ public:
 		Config config(options);
 		Json::Value extraArgs;
 		Result result;
-		HandshakeSession session;
-		session.context = context;
-		session.config = &config;
+		HandshakeSession session(context, config, SPAWN_THROUGH_PRELOADER);
 
 		setConfigFromAppPoolOptions(config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();

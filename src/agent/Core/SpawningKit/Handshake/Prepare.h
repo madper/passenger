@@ -366,10 +366,9 @@ private:
 	void throwSpawnExceptionBecauseOfPortFindingTimeout() {
 		assert(config->genericApp || config->findFreePort);
 		SpawnException e(
-			"A timeout occurred while preparing to spawn an application process.",
-			config,
+			SpawnException::TIMEOUT_ERROR,
 			session.journey,
-			SpawnException::TIMEOUT_ERROR);
+			config);
 		e.setProblemDescriptionHTML(
 			"<p>The " PROGRAM_NAME " application server tried"
 			" to look for a free TCP port for the web application"
@@ -412,7 +411,7 @@ private:
 			"</div>"
 		);
 
-		throw e;
+		throw e.finalize();
 	}
 
 	void throwSpawnExceptionBecauseOfFailureToFindFreePort() {
@@ -425,10 +424,10 @@ private:
 		}
 
 		SpawnException e(
-			"Could not find a free port to spawn the application on",
-			config,
+			SpawnException::INTERNAL_ERROR,
 			session.journey,
-			SpawnException::INTERNAL_ERROR);
+			config,
+			"Could not find a free port to spawn the application on.");
 		e.setProblemDescriptionHTML(
 			"<p>The " PROGRAM_NAME " application server tried"
 			" to look for a free TCP port for the web application"
@@ -446,7 +445,7 @@ private:
 			+ "-" + toString(maxPortRange) + ".</p>"
 
 			"</div>");
-		throw e;
+		throw e.finalize();
 	}
 
 public:
@@ -495,7 +494,7 @@ public:
 			throw;
 		} catch (const std::exception &e) {
 			session.journey.setStepErrored(SPAWNING_KIT_PREPARATION);
-			throw SpawnException(e, config, session.journey);
+			throw SpawnException(e, session.journey, config).finalize();
 		}
 	}
 };
