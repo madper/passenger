@@ -245,6 +245,7 @@ Passenger::SpawningKit::Config::validate(vector<StaticString> &errors) const {
 	 * logLevel
 	 * genericApp
 	 * startsUsingWrapper
+	 * wrapperSuppliedByThirdParty
 	 * findFreePort
 	 * loadShellEnvvars
 	 * analyticsSupport
@@ -270,6 +271,9 @@ Passenger::SpawningKit::Config::getFieldsToPassToApp() const {
 	doc["generic_app"] = genericApp;
 	if (!config.genericApp) {
 		doc["starts_using_wrapper"] = startsUsingWrapper;
+	}
+	if (!config.genericApp && config.startsUsingWrapper) {
+		doc["wrapper_supplied_by_third_party"] = wrapperSuppliedByThirdParty;
 	}
 	doc["load_shell_envvars"] = loadShellEnvvars;
 	doc["analytics_support"] = analyticsSupport;

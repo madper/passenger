@@ -90,6 +90,18 @@ public:
 	bool startsUsingWrapper: 1;
 
 	/**
+	 * When a wrapper is used to load the application, this field
+	 * specifies whether the wrapper is supplied by Phusion or by
+	 * a third party. The only use for this in SpawningKit is to better
+	 * format error messages.
+	 *
+	 * @hinted_parseable
+	 * @only_meaningful_if !config.genericApp && config.startsUsingWrapper
+	 * @pass_during_handshake
+	 */
+	bool wrapperSuppliedByThirdParty: 1;
+
+	/**
 	 * If the app is not generic (`!genericApp`), then this specifies
 	 * whether SpawningKit should find a free port to pass to the app
 	 * so that it can listen on that port.
@@ -296,6 +308,7 @@ public:
 		: logLevel(DEFAULT_LOG_LEVEL),
 		  genericApp(false),
 		  startsUsingWrapper(false),
+		  wrapperSuppliedByThirdParty(false),
 		  findFreePort(false),
 		  loadShellEnvvars(false),
 		  analyticsSupport(false),

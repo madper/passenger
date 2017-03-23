@@ -48,7 +48,6 @@
 
 #include <jsoncpp/json.h>
 
-#include <DataStructures/StringKeyTable.h>
 #include <Constants.h>
 #include <Logging.h>
 #include <StaticString.h>
@@ -366,7 +365,7 @@ private:
 	void throwSpawnExceptionBecauseOfPortFindingTimeout() {
 		assert(config->genericApp || config->findFreePort);
 		SpawnException e(
-			SpawnException::TIMEOUT_ERROR,
+			TIMEOUT_ERROR,
 			session.journey,
 			config);
 		e.setProblemDescriptionHTML(
@@ -424,7 +423,7 @@ private:
 		}
 
 		SpawnException e(
-			SpawnException::INTERNAL_ERROR,
+			INTERNAL_ERROR,
 			session.journey,
 			config,
 			"Could not find a free port to spawn the application on.");

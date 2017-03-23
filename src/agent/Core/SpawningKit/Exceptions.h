@@ -51,18 +51,20 @@ using namespace std;
 using namespace oxt;
 
 
+enum ErrorCategory {
+	INTERNAL_ERROR,
+	FILE_SYSTEM_ERROR,
+	OPERATING_SYSTEM_ERROR,
+	IO_ERROR,
+	TIMEOUT_ERROR,
+
+	UNKNOWN_ERROR_CATEGORY
+};
+
+inline ErrorCategory inferErrorCategoryFromAnotherException(const std::exception &e, JourneyStep failedJourneyStep);
+
+
 class SpawnException: public oxt::tracable_exception {
-public:
-	enum ErrorCategory {
-		INTERNAL_ERROR,
-		FILE_SYSTEM_ERROR,
-		OPERATING_SYSTEM_ERROR,
-		IO_ERROR,
-		TIMEOUT_ERROR,
-
-		UNKNOWN_ERROR_CATEGORY
-	};
-
 private:
 	ErrorCategory category;
 	Journey journey;
@@ -546,48 +548,6 @@ private:
 		}
 	}
 
-	static bool isFileSystemError(const std::exception &e) {
-		if (dynamic_cast<const FileSystemException *>(&e) != NULL) {
-			return true;
-		}
-
-		const SystemException *sysEx = dynamic_cast<const SystemException *>(&e);
-		if (sysEx != NULL) {
-			return sysEx->code() == ENOENT
-				|| sysEx->code() == ENAMETOOLONG
-				|| sysEx->code() == EEXIST
-				|| sysEx->code() == EACCES;
-		}
-
-		return false;
-	}
-
-	static bool systemErrorIsActuallyIoError(JourneyStep failedJourneyStep) {
-		return failedJourneyStep == SPAWNING_KIT_CONNECT_TO_PRELOADER
-			|| failedJourneyStep == SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER
-			|| failedJourneyStep == SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER;
-	}
-
-	static ErrorCategory inferErrorCategoryFromAnotherException(
-		const std::exception &e, JourneyStep failedJourneyStep)
-	{
-		if (dynamic_cast<const SystemException *>(&e) != NULL) {
-			if (systemErrorIsActuallyIoError(failedJourneyStep)) {
-				return IO_ERROR;
-			} else {
-				return OPERATING_SYSTEM_ERROR;
-			}
-		} else if (isFileSystemError(e)) {
-			return FILE_SYSTEM_ERROR;
-		} else if (dynamic_cast<const IOException *>(&e) != NULL) {
-			return IO_ERROR;
-		} else if (dynamic_cast<const TimeoutException *>(&e) != NULL) {
-			return TIMEOUT_ERROR;
-		} else {
-			return INTERNAL_ERROR;
-		}
-	}
-
 	static StaticString getErrorCategoryPhraseWithIndefiniteArticle(
 		ErrorCategory category, bool beginOfSentence)
 	{
@@ -796,24 +756,69 @@ public:
 
 
 inline StaticString
-errorCategoryToString(SpawnException::ErrorCategory category) {
+errorCategoryToString(ErrorCategory category) {
 	switch (category) {
-	case SpawnException::INTERNAL_ERROR:
+	case INTERNAL_ERROR:
 		return P_STATIC_STRING("INTERNAL_ERROR");
-	case SpawnException::FILE_SYSTEM_ERROR:
+	case FILE_SYSTEM_ERROR:
 		return P_STATIC_STRING("FILE_SYSTEM_ERROR");
-	case SpawnException::OPERATING_SYSTEM_ERROR:
+	case OPERATING_SYSTEM_ERROR:
 		return P_STATIC_STRING("OPERATING_SYSTEM_ERROR");
-	case SpawnException::IO_ERROR:
+	case IO_ERROR:
 		return P_STATIC_STRING("IO_ERROR");
-	case SpawnException::TIMEOUT_ERROR:
+	case TIMEOUT_ERROR:
 		return P_STATIC_STRING("TIMEOUT_ERROR");
 
-	case SpawnException::UNKNOWN_ERROR_CATEGORY:
+	case UNKNOWN_ERROR_CATEGORY:
 		return P_STATIC_STRING("UNKNOWN_ERROR_CATEGORY");
 
 	default:
 		return P_STATIC_STRING("(invalid value)");
+	}
+}
+
+inline bool
+_isFileSystemError(const std::exception &e) {
+	if (dynamic_cast<const FileSystemException *>(&e) != NULL) {
+		return true;
+	}
+
+	const SystemException *sysEx = dynamic_cast<const SystemException *>(&e);
+	if (sysEx != NULL) {
+		return sysEx->code() == ENOENT
+			|| sysEx->code() == ENAMETOOLONG
+			|| sysEx->code() == EEXIST
+			|| sysEx->code() == EACCES;
+	}
+
+	return false;
+}
+
+inline bool
+_systemErrorIsActuallyIoError(JourneyStep failedJourneyStep) {
+	return failedJourneyStep == SPAWNING_KIT_CONNECT_TO_PRELOADER
+		|| failedJourneyStep == SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER
+		|| failedJourneyStep == SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER;
+}
+
+inline ErrorCategory
+inferErrorCategoryFromAnotherException(
+	const std::exception &e, JourneyStep failedJourneyStep)
+{
+	if (dynamic_cast<const SystemException *>(&e) != NULL) {
+		if (_systemErrorIsActuallyIoError(failedJourneyStep)) {
+			return IO_ERROR;
+		} else {
+			return OPERATING_SYSTEM_ERROR;
+		}
+	} else if (_isFileSystemError(e)) {
+		return FILE_SYSTEM_ERROR;
+	} else if (dynamic_cast<const IOException *>(&e) != NULL) {
+		return IO_ERROR;
+	} else if (dynamic_cast<const TimeoutException *>(&e) != NULL) {
+		return TIMEOUT_ERROR;
+	} else {
+		return INTERNAL_ERROR;
 	}
 }
 
