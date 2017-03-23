@@ -52,7 +52,6 @@ Passenger::SpawningKit::Result::loadPropertiesFromResponseDir(const string &dir)
 	 * pid
 	 * gupid
 	 * codeRevision
-	 * stickySessionId
 	 * stdinFd
 	 * stdoutAndErrFd
 	 * spawnStartTime
@@ -100,7 +99,6 @@ Passenger::SpawningKit::Result::validate(vector<StaticString> &internalFieldErro
 	 * Excluded:
 	 *
 	 * codeRevision
-	 * stickySessionId
 	 * stdinFd
 	 * stdoutAndErrFd
 	 * statusApiPath

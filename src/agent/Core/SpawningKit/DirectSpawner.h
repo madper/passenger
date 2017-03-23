@@ -27,8 +27,8 @@
 #define _PASSENGER_SPAWNING_KIT_DIRECT_SPAWNER_H_
 
 #include <Core/SpawningKit/Spawner.h>
-#include <Core/SpawningKit/HandshakePrepare.h>
-#include <Core/SpawningKit/HandshakePerform.h>
+#include <Core/SpawningKit/Handshake/Prepare.h>
+#include <Core/SpawningKit/Handshake/Perform.h>
 #include <Constants.h>
 #include <Logging.h>
 #include <Utils/IOUtils.h>

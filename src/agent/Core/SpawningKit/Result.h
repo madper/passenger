@@ -115,11 +115,6 @@ public:
 	/**
 	 * @hinted_parseable
 	 */
-	string stickySessionId;
-
-	/**
-	 * @hinted_parseable
-	 */
 	FileDescriptor stdinFd;
 
 	/**
@@ -187,7 +182,6 @@ public:
 			context.randomGenerator->generateAsciiString(10);
 		spawnStartTime = SystemTime::getUsec();
 		spawnStartTimeMonotonic = SystemTime::getMonotonicUsec();
-		stickySessionId = config->stickySessionId.toString();
 	}
 
 	void loadPropertiesFromResponseDir(const string &dir);

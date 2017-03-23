@@ -247,15 +247,6 @@ public:
 	StaticString unionStationKey;
 
 	/**
-	 * A sticky session ID for routing to a specific process.
-	 *
-	 * @hinted_parseable
-	 * @pass_during_handshake
-	 * @only_pass_during_handshake_if !config.stickySessionId.empty()
-	 */
-	StaticString stickySessionId;
-
-	/**
 	 * The API key of the pool group that the spawned process is to belong to.
 	 *
 	 * @hinted_parseable

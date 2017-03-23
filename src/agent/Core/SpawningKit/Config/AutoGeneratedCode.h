@@ -61,7 +61,6 @@ Passenger::SpawningKit::Config::internStrings() {
 		}
 	}
 	totalSize += unionStationKey.size() + 1;
-	totalSize += stickySessionId.size() + 1;
 	totalSize += apiKey.size() + 1;
 	totalSize += groupUuid.size() + 1;
 
@@ -103,8 +102,6 @@ Passenger::SpawningKit::Config::internStrings() {
 		}
 	}
 	pos = appendData(pos, end, unionStationKey);
-	pos = appendData(pos, end, "\0", 1);
-	pos = appendData(pos, end, stickySessionId);
 	pos = appendData(pos, end, "\0", 1);
 	pos = appendData(pos, end, apiKey);
 	pos = appendData(pos, end, "\0", 1);
@@ -167,10 +164,6 @@ Passenger::SpawningKit::Config::internStrings() {
 
 	tmpSize = unionStationKey.size();
 	unionStationKey = StaticString(pos, tmpSize);
-	pos += tmpSize + 1;
-
-	tmpSize = stickySessionId.size();
-	stickySessionId = StaticString(pos, tmpSize);
 	pos += tmpSize + 1;
 
 	tmpSize = apiKey.size();
@@ -251,7 +244,6 @@ Passenger::SpawningKit::Config::validate(vector<StaticString> &errors) const {
 	 * analyticsSupport
 	 * processTitle
 	 * environmentVariables
-	 * stickySessionId
 	 * apiKey
 	 * groupUuid
 	 * lveMinUid
@@ -293,9 +285,6 @@ Passenger::SpawningKit::Config::getFieldsToPassToApp() const {
 	doc["environment_variables"] = tableToJson(environmentVariables);
 	if (config.analyticsSupport && !config.unionStationKey.empty()) {
 		doc["union_station_key"] = unionStationKey.toString();
-	}
-	if (!config.stickySessionId.empty()) {
-		doc["sticky_session_id"] = stickySessionId.toString();
 	}
 	if (!config.apiKey.empty()) {
 		doc["api_key"] = apiKey.toString();
