@@ -104,7 +104,9 @@ enum JourneyStepState {
 	/**
 	 * This step has failed. Will be visualized with a red mark.
 	 */
-	STEP_ERRORED
+	STEP_ERRORED,
+
+	UNKNOWN_JOURNEY_STEP_STATE
 };
 
 struct JourneyStepInfo {
@@ -117,12 +119,15 @@ struct JourneyStepInfo {
 		  startTime(0),
 		  endTime(0)
 		{ }
+
+	unsigned long long usecDuration() const {
+		return endTime - startTime;
+	}
 };
 
 inline OXT_PURE StaticString journeyStepToString(JourneyStep step);
 inline OXT_PURE StaticString journeyStepStateToString(JourneyStepState state);
-inline OXT_PURE JourneyStep stringToPreloaderJourneyStep(const StaticString &name);
-inline OXT_PURE JourneyStep stringToSubprocessJourneyStep(const StaticString &name);
+inline OXT_PURE JourneyStepState stringToJourneyStepState(const StaticString &value);
 
 inline OXT_PURE JourneyStep getFirstSubprocessJourneyStep() { return SUBPROCESS_BEFORE_FIRST_EXEC; }
 inline OXT_PURE JourneyStep getLastSubprocessJourneyStep() { return SUBPROCESS_FINISH; }
@@ -225,6 +230,11 @@ public:
 		return type;
 	}
 
+	bool hasStep(JourneyStep step) const {
+		Map::const_iterator it = steps.find(step);
+		return it != steps.end();
+	}
+
 	const JourneyStepInfo &getStepInfo(JourneyStep step) const {
 		Map::const_iterator it = steps.find(step);
 		if (it == steps.end()) {
@@ -277,20 +287,33 @@ public:
 		}
 	}
 
-	void setStepErrored(JourneyStep step) {
+	void setStepErrored(JourneyStep step, bool force = false) {
 		Map::iterator it = steps.find(step);
 		if (it == steps.end()) {
 			throw RuntimeException("Invalid step " + journeyStepToString(step));
 		}
 
-		if (it->second.state == STEP_IN_PROGRESS) {
+		if (it->second.state == STEP_IN_PROGRESS || force) {
 			it->second.state = STEP_ERRORED;
-			it->second.endTime =
-				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+			// When `force` is true, we don't want to overwrite the previous endTime.
+			if (it->second.endTime == 0) {
+				it->second.endTime =
+					SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+			}
 		} else {
 			throw RuntimeException("Unable to change state for journey step "
 				+ journeyStepToString(step) + " because it wasn't already in progress");
 		}
+	}
+
+	void setStepExecutionDuration(JourneyStep step, unsigned long long usecDuration) {
+		Map::iterator it = steps.find(step);
+		if (it == steps.end()) {
+			throw RuntimeException("Invalid step " + journeyStepToString(step));
+		}
+
+		it->second.startTime = 0;
+		it->second.endTime = usecDuration;
 	}
 };
 
@@ -366,43 +389,18 @@ journeyStepStateToString(JourneyStepState state) {
 	}
 }
 
-inline OXT_PURE JourneyStep
-stringToPreloaderJourneyStep(const StaticString &name) {
-	if (name == P_STATIC_STRING("PRELOADER_PREPARATION")) {
-		return PRELOADER_PREPARATION;
-	} else if (name == P_STATIC_STRING("PRELOADER_FORK_SUBPROCESS")) {
-		return PRELOADER_FORK_SUBPROCESS;
-	} else if (name == P_STATIC_STRING("PRELOADER_SEND_RESPONSE")) {
-		return PRELOADER_SEND_RESPONSE;
-	} else if (name == P_STATIC_STRING("PRELOADER_FINISH")) {
-		return PRELOADER_FINISH;
+inline OXT_PURE JourneyStepState
+stringToJourneyStepState(const StaticString &value) {
+	if (value == P_STATIC_STRING("STEP_NOT_STARTED")) {
+		return STEP_NOT_STARTED;
+	} else if (value == P_STATIC_STRING("STEP_IN_PROGRESS")) {
+		return STEP_IN_PROGRESS;
+	} else if (value == P_STATIC_STRING("STEP_PERFORMED")) {
+		return STEP_PERFORMED;
+	} else if (value == P_STATIC_STRING("STEP_ERRORED")) {
+		return STEP_ERRORED;
 	} else {
-		return UNKNOWN_JOURNEY_STEP;
-	}
-}
-
-inline OXT_PURE JourneyStep
-stringToSubprocessJourneyStep(const StaticString &name) {
-	if (name == P_STATIC_STRING("SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL")) {
-		return SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_OS_SHELL")) {
-		return SUBPROCESS_OS_SHELL;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL")) {
-		return SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_EXEC_WRAPPER")) {
-		return SUBPROCESS_EXEC_WRAPPER;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_WRAPPER_PREPARATION")) {
-		return SUBPROCESS_WRAPPER_PREPARATION;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_APP_LOAD_OR_EXEC")) {
-		return SUBPROCESS_APP_LOAD_OR_EXEC;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER")) {
-		return SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_LISTEN")) {
-		return SUBPROCESS_LISTEN;
-	} else if (name == P_STATIC_STRING("SUBPROCESS_FINISH")) {
-		return SUBPROCESS_FINISH;
-	} else {
-		return UNKNOWN_JOURNEY_STEP;
+		return UNKNOWN_JOURNEY_STEP_STATE;
 	}
 }
 

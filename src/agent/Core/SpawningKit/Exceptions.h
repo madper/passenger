@@ -822,6 +822,23 @@ inferErrorCategoryFromAnotherException(
 	}
 }
 
+inline ErrorCategory
+stringToErrorCategory(const StaticString &value) {
+	if (value == P_STATIC_STRING("INTERNAL_ERROR")) {
+		return INTERNAL_ERROR;
+	} else if (value == P_STATIC_STRING("FILE_SYSTEM_ERROR")) {
+		return FILE_SYSTEM_ERROR;
+	} else if (value == P_STATIC_STRING("OPERATING_SYSTEM_ERROR")) {
+		return OPERATING_SYSTEM_ERROR;
+	} else if (value == P_STATIC_STRING("IO_ERROR")) {
+		return IO_ERROR;
+	} else if (value == P_STATIC_STRING("TIMEOUT_ERROR")) {
+		return TIMEOUT_ERROR;
+	} else {
+		return UNKNOWN_ERROR_CATEGORY;
+	}
+}
+
 
 } // namespace SpawningKit
 } // namespace Passenger
