@@ -34,6 +34,7 @@
 #include <Utils/SystemTime.h>
 #include <Core/SpawningKit/Context.h>
 #include <Core/SpawningKit/Result.h>
+#include <Core/SpawningKit/UserSwitchingRules.h>
 
 namespace Passenger {
 namespace SpawningKit {
@@ -77,6 +78,7 @@ protected:
 	void setConfigFromAppPoolOptions(Config *config, Json::Value &extraArgs,
 		const AppPoolOptions &options)
 	{
+		string startCommand = options.getStartCommand(*context->resourceLocator);
 		string envvarsData;
 		try {
 			envvarsData = modp::b64_decode(options.environmentVariables.data(),
@@ -89,13 +91,14 @@ protected:
 
 		config->appRoot = options.appRoot;
 		config->logLevel = options.logLevel;
-		config->genericApp;
-		config->startsUsingWrapper;
-		config->findFreePort;
+		config->genericApp = false;
+		config->startsUsingWrapper = true;
+		config->wrapperSuppliedByThirdParty = false;
+		config->findFreePort = false;
 		config->loadShellEnvvars = options.loadShellEnvvars;
 		config->analyticsSupport = options.analytics;
-		config->startCommand;
-		config->startupFile;
+		config->startCommand = startCommand;
+		config->startupFile = options.getStartupFile();
 		config->appType = options.appType;
 		config->appEnv = options.environment;
 		config->baseURI = options.baseURI;
@@ -122,6 +125,8 @@ protected:
 
 		/******************/
 		/******************/
+
+		config->internStrings();
 	}
 
 public:

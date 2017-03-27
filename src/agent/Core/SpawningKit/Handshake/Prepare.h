@@ -132,9 +132,28 @@ private:
 	void createWorkDir() {
 		TRACE_POINT();
 		session.workDir.reset(new HandshakeWorkDir(session.uid, session.gid));
+
+		session.envDumpDir = session.workDir->getPath() + "/envdump";
+		makeDirTree(session.envDumpDir,
+			"u=rwx,g=,o=",
+			session.uid,
+			session.gid);
+		makeDirTree(session.envDumpDir + "/annotations",
+			"u=rwx,g=,o=",
+			session.uid,
+			session.gid);
+
 		session.responseDir = session.workDir->getPath() + "/response";
-		createFifo(session.workDir->getPath() + "/finish");
 		makeDirTree(session.responseDir,
+			"u=rwx,g=,o=",
+			session.uid,
+			session.gid);
+		createFifo(session.responseDir + "/finish");
+		makeDirTree(session.responseDir + "/error",
+			"u=rwx,g=,o=",
+			session.uid,
+			session.gid);
+		makeDirTree(session.responseDir + "/steps",
 			"u=rwx,g=,o=",
 			session.uid,
 			session.gid);
@@ -209,7 +228,7 @@ private:
 			session.uid, session.gid);
 
 		const string dir = session.workDir->getPath() + "/args";
-		makeDirTree(dir, "u=rwx,g=r,o=r",
+		makeDirTree(dir, "u=rwx,g=,o=",
 			session.uid,
 			session.gid);
 
@@ -425,8 +444,8 @@ private:
 		SpawnException e(
 			INTERNAL_ERROR,
 			session.journey,
-			config,
-			"Could not find a free port to spawn the application on.");
+			config);
+		e.setSummary("Could not find a free port to spawn the application on.");
 		e.setProblemDescriptionHTML(
 			"<p>The " PROGRAM_NAME " application server tried"
 			" to look for a free TCP port for the web application"

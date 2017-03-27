@@ -49,6 +49,7 @@ struct HandshakeSession {
 
 	boost::scoped_ptr<HandshakeWorkDir> workDir;
 	string responseDir;
+	string envDumpDir;
 	Journey journey;
 	Result result;
 

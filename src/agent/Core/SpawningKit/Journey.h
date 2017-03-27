@@ -126,6 +126,7 @@ struct JourneyStepInfo {
 };
 
 inline OXT_PURE StaticString journeyStepToString(JourneyStep step);
+inline OXT_PURE string journeyStepToStringLowerCase(JourneyStep step);
 inline OXT_PURE StaticString journeyStepStateToString(JourneyStepState state);
 inline OXT_PURE JourneyStepState stringToJourneyStepState(const StaticString &value);
 
@@ -205,6 +206,15 @@ private:
 		insertStep(SUBPROCESS_FINISH);
 	}
 
+	JourneyStepInfo &getStepInfoMutable(JourneyStep step) {
+		Map::iterator it = steps.find(step);
+		if (it == steps.end()) {
+			throw RuntimeException("Invalid step " + journeyStepToString(step));
+		}
+
+		return it->second;
+	}
+
 public:
 	Journey(JourneyType _type, bool _usingWrapper)
 		: type(_type),
@@ -255,31 +265,39 @@ public:
 		return UNKNOWN_JOURNEY_STEP;
 	}
 
-	void setStepInProgress(JourneyStep step) {
-		Map::iterator it = steps.find(step);
-		if (it == steps.end()) {
-			throw RuntimeException("Invalid step " + journeyStepToString(step));
+	void setStepNotStarted(JourneyStep step) {
+		JourneyStepInfo &info = getStepInfoMutable(step);
+		if (info.state == STEP_NOT_STARTED || info.state == STEP_IN_PROGRESS) {
+			info.state = STEP_NOT_STARTED;
+			info.startTime = 0;
+		} else {
+			throw RuntimeException("Unable to change state for journey step "
+				+ journeyStepToString(step) + " because it wasn't already in progress");
 		}
+	}
 
-		if (it->second.state == STEP_NOT_STARTED) {
-			it->second.state = STEP_IN_PROGRESS;
-			it->second.startTime =
+	void setStepInProgress(JourneyStep step) {
+		JourneyStepInfo &info = getStepInfoMutable(step);
+		if (info.state == STEP_IN_PROGRESS) {
+			return;
+		} else if (info.state == STEP_NOT_STARTED) {
+			info.state = STEP_IN_PROGRESS;
+			info.startTime =
 				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
 		} else {
-			throw RuntimeException("Unable to change state for completed journey step "
-				+ journeyStepToString(step));
+			throw RuntimeException("Unable to change state for journey step "
+				+ journeyStepToString(step)
+				+ " because it was already in progress or completed");
 		}
 	}
 
 	void setStepPerformed(JourneyStep step) {
-		Map::iterator it = steps.find(step);
-		if (it == steps.end()) {
-			throw RuntimeException("Invalid step " + journeyStepToString(step));
-		}
-
-		if (it->second.state == STEP_IN_PROGRESS) {
-			it->second.state = STEP_PERFORMED;
-			it->second.endTime =
+		JourneyStepInfo &info = getStepInfoMutable(step);
+		if (info.state == STEP_PERFORMED) {
+			return;
+		} else if (info.state == STEP_IN_PROGRESS) {
+			info.state = STEP_PERFORMED;
+			info.endTime =
 				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
 		} else {
 			throw RuntimeException("Unable to change state for journey step "
@@ -288,16 +306,14 @@ public:
 	}
 
 	void setStepErrored(JourneyStep step, bool force = false) {
-		Map::iterator it = steps.find(step);
-		if (it == steps.end()) {
-			throw RuntimeException("Invalid step " + journeyStepToString(step));
-		}
-
-		if (it->second.state == STEP_IN_PROGRESS || force) {
-			it->second.state = STEP_ERRORED;
+		JourneyStepInfo &info = getStepInfoMutable(step);
+		if (info.state == STEP_ERRORED) {
+			return;
+		} else if (info.state == STEP_IN_PROGRESS || force) {
+			info.state = STEP_ERRORED;
 			// When `force` is true, we don't want to overwrite the previous endTime.
-			if (it->second.endTime == 0) {
-				it->second.endTime =
+			if (info.endTime == 0) {
+				info.endTime =
 					SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
 			}
 		} else {
@@ -307,13 +323,9 @@ public:
 	}
 
 	void setStepExecutionDuration(JourneyStep step, unsigned long long usecDuration) {
-		Map::iterator it = steps.find(step);
-		if (it == steps.end()) {
-			throw RuntimeException("Invalid step " + journeyStepToString(step));
-		}
-
-		it->second.startTime = 0;
-		it->second.endTime = usecDuration;
+		JourneyStepInfo &info = getStepInfoMutable(step);
+		info.startTime = 0;
+		info.endTime = usecDuration;
 	}
 };
 
@@ -371,6 +383,15 @@ journeyStepToString(JourneyStep step) {
 	default:
 		return P_STATIC_STRING("UNKNOWN_JOURNEY_STEP");
 	}
+}
+
+inline OXT_PURE string
+journeyStepToStringLowerCase(JourneyStep step) {
+	StaticString stepString = journeyStepToString(step);
+	DynamicBuffer stepStringLcBuffer(stepString.size());
+	convertLowerCase((const unsigned char *) stepString.data(),
+		(unsigned char *) stepStringLcBuffer.data, stepString.size());
+	return string(stepStringLcBuffer.data, stepString.size());
 }
 
 inline OXT_PURE StaticString

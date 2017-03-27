@@ -226,11 +226,9 @@ private:
 			SpawnException e(
 				inferErrorCategoryFromResponseDir(INTERNAL_ERROR),
 				session.journey,
-				config,
-				string(),
-				string(),
-				getStdoutErrData());
-			loadErrorMessagesAndAnnotationsFromResponseDir(e);
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadSubprocessErrorMessagesAndAnnotations(e);
 			throw e.finalize();
 		}
 
@@ -240,11 +238,9 @@ private:
 			SpawnException e(
 				TIMEOUT_ERROR,
 				session.journey,
-				config,
-				string(),
-				string(),
-				getStdoutErrData());
-			loadErrorMessagesAndAnnotationsFromResponseDir(e);
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadSubprocessErrorMessagesAndAnnotations(e);
 			throw e.finalize();
 		}
 
@@ -319,11 +315,10 @@ private:
 		SpawnException e(
 			inferErrorCategoryFromResponseDir(INTERNAL_ERROR),
 			session.journey,
-			config,
-			"The web application aborted with an error during startup.",
-			string(),
-			getStdoutErrData());
-		loadErrorMessagesAndAnnotationsFromResponseDir(e);
+			config);
+		e.setSummary("The web application aborted with an error during startup.");
+		e.setStdoutAndErrData(getStdoutErrData());
+		loadSubprocessErrorMessagesAndAnnotations(e);
 		throw e.finalize();
 	}
 
@@ -335,11 +330,11 @@ private:
 		SpawnException e(
 			finishSignalWatcherErrorCategory,
 			session.journey,
-			config,
-			"An internal error occurred while spawning an application process: "
-				+ finishSignalWatcherErrorMessage,
-			finishSignalWatcherErrorMessage,
-			getStdoutErrData());
+			config);
+		e.setSummary("An internal error occurred while spawning an application process: "
+			+ finishSignalWatcherErrorMessage);
+		e.setAdvancedProblemDetails(finishSignalWatcherErrorMessage);
+		e.setStdoutAndErrData(getStdoutErrData());
 		throw e.finalize();
 	}
 
@@ -365,30 +360,26 @@ private:
 		sleepShortlyToCaptureMoreStdoutStderr();
 
 		if (!config->genericApp && config->startsUsingWrapper) {
-			string summary;
-
 			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
 			loadJourneyStateFromResponseDir();
-
-			if (config->wrapperSuppliedByThirdParty) {
-				summary = "Error spawning the web application:"
-					" a third-party application wrapper did not"
-					" report any sockets to receive requests on.";
-			} else {
-				summary = "Error spawning the web application:"
-					" a " SHORT_PROGRAM_NAME "-internal application"
-					" wrapper did not report any sockets to receive"
-					" requests on.";
-			}
 
 			SpawnException e(
 				INTERNAL_ERROR,
 				session.journey,
-				config,
-				summary,
-				string(),
-				getStdoutErrData());
-			loadAnnotationsFromResponseDir(e);
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadAnnotationsFromEnvDumpDir(e);
+
+			if (config->wrapperSuppliedByThirdParty) {
+				e.setSummary("Error spawning the web application:"
+					" a third-party application wrapper did not"
+					" report any sockets to receive requests on.");
+			} else {
+				e.setSummary("Error spawning the web application:"
+					" a " SHORT_PROGRAM_NAME "-internal application"
+					" wrapper did not report any sockets to receive"
+					" requests on.");
+			}
 
 			if (config->wrapperSuppliedByThirdParty) {
 				e.setProblemDescriptionHTML(
@@ -437,13 +428,12 @@ private:
 			SpawnException e(
 				INTERNAL_ERROR,
 				session.journey,
-				config,
-				"Error spawning the web application: the application"
-				" did not report any sockets to receive requests on.",
-				string(),
-				getStdoutErrData());
-			loadAnnotationsFromResponseDir(e);
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadAnnotationsFromEnvDumpDir(e);
 
+			e.setSummary("Error spawning the web application: the application"
+				" did not report any sockets to receive requests on.");
 			e.setProblemDescriptionHTML(
 				"<p>The " PROGRAM_NAME " application server tried"
 				" to start the web application, but encountered a bug"
@@ -478,13 +468,14 @@ private:
 			SpawnException e(
 				INTERNAL_ERROR,
 				session.journey,
-				config,
-				"Error spawning the web application:"
-					" a bug in " SHORT_PROGRAM_NAME " caused the"
-					" spawn result to be invalid: "
-					+ toString(internalFieldErrors),
-				toString(internalFieldErrors),
-				getStdoutErrData());
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			e.setAdvancedProblemDetails(toString(internalFieldErrors));
+
+			e.setSummary("Error spawning the web application:"
+				" a bug in " SHORT_PROGRAM_NAME " caused the"
+				" spawn result to be invalid: "
+				+ toString(internalFieldErrors));
 
 			message = "<p>The " PROGRAM_NAME " application server tried"
 				" to start the web application, but encountered a bug"
@@ -507,32 +498,29 @@ private:
 			throw e.finalize();
 
 		} else if (!config->genericApp && config->startsUsingWrapper) {
-			string summary;
-
 			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
 			loadJourneyStateFromResponseDir();
-
-			if (config->wrapperSuppliedByThirdParty) {
-				summary = "Error spawning the web application:"
-					" a bug in a third-party application wrapper caused"
-					" the spawn result to be invalid: "
-					+ toString(appSuppliedFieldErrors);
-			} else {
-				summary = "Error spawning the web application:"
-					" a bug in a " SHORT_PROGRAM_NAME "-internal"
-					" application wrapper caused the"
-					" spawn result to be invalid: "
-					+ toString(appSuppliedFieldErrors);
-			}
 
 			SpawnException e(
 				INTERNAL_ERROR,
 				session.journey,
-				config,
-				summary,
-				toString(appSuppliedFieldErrors),
-				getStdoutErrData());
-			loadAnnotationsFromResponseDir(e);
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			e.setAdvancedProblemDetails(toString(appSuppliedFieldErrors));
+			loadAnnotationsFromEnvDumpDir(e);
+
+			if (config->wrapperSuppliedByThirdParty) {
+				e.setSummary("Error spawning the web application:"
+					" a bug in a third-party application wrapper caused"
+					" the spawn result to be invalid: "
+					+ toString(appSuppliedFieldErrors));
+			} else {
+				e.setSummary("Error spawning the web application:"
+					" a bug in a " SHORT_PROGRAM_NAME "-internal"
+					" application wrapper caused the"
+					" spawn result to be invalid: "
+					+ toString(appSuppliedFieldErrors));
+			}
 
 			if (config->wrapperSuppliedByThirdParty) {
 				message = "<p>The " PROGRAM_NAME " application server tried"
@@ -589,13 +577,13 @@ private:
 			SpawnException e(
 				INTERNAL_ERROR,
 				session.journey,
-				config,
-				"Error spawning the web application:"
-					" the application's spawn response is invalid: "
-					+ toString(appSuppliedFieldErrors),
-				toString(appSuppliedFieldErrors),
-				getStdoutErrData());
-			loadAnnotationsFromResponseDir(e);
+				config);
+			e.setSummary("Error spawning the web application:"
+				" the application's spawn response is invalid: "
+				+ toString(appSuppliedFieldErrors));
+			e.setAdvancedProblemDetails(toString(appSuppliedFieldErrors));
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadAnnotationsFromEnvDumpDir(e);
 
 			message = "<p>The " PROGRAM_NAME " application server tried"
 				" to start the web application, but encountered a bug"
@@ -632,44 +620,40 @@ private:
 	}
 
 	ErrorCategory inferErrorCategoryFromResponseDir(ErrorCategory defaultValue) const {
-		if (fileExists(session.responseDir + "/error_category")) {
-			string value = strip(readAll(session.responseDir + "/error_category"));
+		if (fileExists(session.responseDir + "/error/category")) {
+			string value = strip(readAll(session.responseDir + "/error/category"));
 			ErrorCategory category = stringToErrorCategory(value);
 
 			if (category == UNKNOWN_ERROR_CATEGORY) {
-				string summary;
+				SpawnException e(
+					INTERNAL_ERROR,
+					session.journey,
+					config);
+				e.setStdoutAndErrData(getStdoutErrData());
+				loadAnnotationsFromEnvDumpDir(e);
 
 				if (!config->genericApp && config->startsUsingWrapper) {
 					if (config->wrapperSuppliedByThirdParty) {
-						summary =
+						e.setSummary(
 							"An error occurred while spawning an application process: "
 							"the application wrapper (which is internal to "
 							SHORT_PROGRAM_NAME
 							") reported an invalid progress step state: "
-						+ value;
+							+ value);
 					} else {
-						summary =
+						e.setSummary(
 							"An error occurred while spawning an application process: "
 							"the application wrapper (which is not part of "
 							SHORT_PROGRAM_NAME
 							") reported an invalid progress step state: "
-						+ value;
+							+ value);
 					}
 				} else {
-					summary =
+					e.setSummary(
 						"An error occurred while spawning an application process: "
 						"the application reported an invalid progress step state: "
-						+ value;
+						+ value);
 				}
-
-				SpawnException e(
-					INTERNAL_ERROR,
-					session.journey,
-					config,
-					summary,
-					string(),
-					getStdoutErrData());
-				loadAnnotationsFromResponseDir(e);
 
 				if (!config->genericApp && config->startsUsingWrapper) {
 					if (config->wrapperSuppliedByThirdParty) {
@@ -682,7 +666,7 @@ private:
 							" details about that error. But the tool communicated back"
 							" in an invalid format:</p>"
 							"<ul>"
-							"<li>In file: " + escapeHTML(session.responseDir) + "/error_category</li>"
+							"<li>In file: " + escapeHTML(session.responseDir) + "/error/category</li>"
 							"<li>Content: <code>" + escapeHTML(value) + "</code></li>"
 							"</ul>");
 						e.setSolutionDescriptionHTML(
@@ -703,7 +687,7 @@ private:
 							" expected the tool to report details about that error."
 							" But the tool communicated back in an invalid format:</p>"
 							"<ul>"
-							"<li>In file: " + escapeHTML(session.responseDir) + "/error_category</li>"
+							"<li>In file: " + escapeHTML(session.responseDir) + "/error/category</li>"
 							"<li>Content: <code>" + escapeHTML(value) + "</code></li>"
 							"</ul>");
 						e.setSolutionDescriptionHTML(
@@ -720,7 +704,7 @@ private:
 						SHORT_PROGRAM_NAME ". But the application communicated back"
 						" in an invalid format:</p>"
 						"<ul>"
-						"<li>In file: " + escapeHTML(session.responseDir) + "/error_category</li>"
+						"<li>In file: " + escapeHTML(session.responseDir) + "/error/category</li>"
 							"<li>Content: <code>" + escapeHTML(value) + "</code></li>"
 						"</ul>");
 					e.setSolutionDescriptionHTML(
@@ -741,23 +725,17 @@ private:
 	}
 
 	void loadJourneyStateFromResponseDir() {
-		JourneyStep firstStep = getFirstSubprocessJourneyStep();
+		JourneyStep firstStep = JourneyStep((int) getFirstSubprocessJourneyStep() + 1);
 		JourneyStep lastStep = getLastSubprocessJourneyStep();
 		JourneyStep step;
 
-		for (step = firstStep; step <= lastStep; step = JourneyStep((int) step + 1)) {
+		for (step = firstStep; step < lastStep; step = JourneyStep((int) step + 1)) {
 			if (!session.journey.hasStep(step)) {
 				continue;
 			}
 
-			StaticString stepString = journeyStepToString(step);
-			DynamicBuffer stepStringLcBuffer(stepString.size());
-			convertLowerCase((const unsigned char *) stepString.data(),
-				(unsigned char *) stepStringLcBuffer.data,
-				stepString.size());
-			StaticString stepStringLc(stepStringLcBuffer.data, stepString.size());
-
-			string stepDir = session.responseDir + "/" + stepStringLc;
+			string stepString = journeyStepToStringLowerCase(step);
+			string stepDir = session.responseDir + "/steps/" + stepString;
 			if (!fileExists(stepDir + "/state")) {
 				continue;
 			}
@@ -792,32 +770,33 @@ private:
 			default:
 				session.journey.setStepErrored(step);
 
-				if (!config->genericApp && config->startsUsingWrapper) {
-					if (config->wrapperSuppliedByThirdParty) {
-						summary = "An error occurred while spawning an application process: "
-							"the application wrapper (which is internal to " SHORT_PROGRAM_NAME
-							") reported an invalid progress step state: "
-						+ value;
-					} else {
-						summary = "An error occurred while spawning an application process: "
-							"the application wrapper (which is not part of " SHORT_PROGRAM_NAME
-							") reported an invalid progress step state: "
-						+ value;
-					}
-				} else {
-					summary = "An error occurred while spawning an application process: "
-						"the application reported an invalid progress step state: "
-						+ value;
-				}
-
 				SpawnException e(
 					INTERNAL_ERROR,
 					session.journey,
-					config,
-					summary,
-					string(),
-					getStdoutErrData());
-				loadAnnotationsFromResponseDir(e);
+					config);
+				e.setStdoutAndErrData(getStdoutErrData());
+				loadAnnotationsFromEnvDumpDir(e);
+
+				if (!config->genericApp && config->startsUsingWrapper) {
+					if (config->wrapperSuppliedByThirdParty) {
+						e.setSummary(
+							"An error occurred while spawning an application process: "
+							"the application wrapper (which is internal to " SHORT_PROGRAM_NAME
+							") reported an invalid progress step state: "
+							+ value);
+					} else {
+						e.setSummary(
+							"An error occurred while spawning an application process: "
+							"the application wrapper (which is not part of " SHORT_PROGRAM_NAME
+							") reported an invalid progress step state: "
+							+ value);
+					}
+				} else {
+					e.setSummary(
+						"An error occurred while spawning an application process: "
+						"the application reported an invalid progress step state: "
+						+ value);
+				}
 
 				if (!config->genericApp && config->startsUsingWrapper) {
 					if (config->wrapperSuppliedByThirdParty) {
@@ -884,32 +863,30 @@ private:
 		} catch (const RuntimeException &originalException) {
 			session.journey.setStepErrored(step, true);
 
-			if (!config->genericApp && config->startsUsingWrapper) {
-				if (config->wrapperSuppliedByThirdParty) {
-					summary = "An error occurred while spawning an application process: "
-						"the application wrapper (which is internal to " SHORT_PROGRAM_NAME
-						") reported an invalid progress step state: "
-					+ StaticString(originalException.what());
-				} else {
-					summary = "An error occurred while spawning an application process: "
-						"the application wrapper (which is not part of " SHORT_PROGRAM_NAME
-						") reported an invalid progress step state: "
-					+ StaticString(originalException.what());
-				}
-			} else {
-				summary = "An error occurred while spawning an application process: "
-					"the application reported an invalid progress step state: "
-					+ StaticString(originalException.what());
-			}
-
 			SpawnException e(
 				INTERNAL_ERROR,
 				session.journey,
-				config,
-				summary,
-				string(),
-				getStdoutErrData());
-			loadAnnotationsFromResponseDir(e);
+				config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadAnnotationsFromEnvDumpDir(e);
+
+			if (!config->genericApp && config->startsUsingWrapper) {
+				if (config->wrapperSuppliedByThirdParty) {
+					e.setSummary("An error occurred while spawning an application process: "
+						"the application wrapper (which is internal to " SHORT_PROGRAM_NAME
+						") reported an invalid progress step state: "
+						+ StaticString(originalException.what()));
+				} else {
+					e.setSummary("An error occurred while spawning an application process: "
+						"the application wrapper (which is not part of " SHORT_PROGRAM_NAME
+						") reported an invalid progress step state: "
+						+ StaticString(originalException.what()));
+				}
+			} else {
+				e.setSummary("An error occurred while spawning an application process: "
+					"the application reported an invalid progress step state: "
+					+ StaticString(originalException.what()));
+			}
 
 			if (!config->genericApp && config->startsUsingWrapper) {
 				if (config->wrapperSuppliedByThirdParty) {
@@ -975,48 +952,59 @@ private:
 
 		if (fileExists(stepDir + "/duration")) {
 			value = readAll(stepDir + "/duration");
-			unsigned long long usecDuration = stringToULL(value);
+			unsigned long long usecDuration = stringToULL(value) * 1000000;
 			session.journey.setStepExecutionDuration(step, usecDuration);
 		}
 	}
 
-	void loadErrorMessagesAndAnnotationsFromResponseDir(SpawnException &e) const {
+	void loadSubprocessErrorMessagesAndAnnotations(SpawnException &e) const {
 		const string &responseDir = session.responseDir;
+		const string &envDumpDir = session.envDumpDir;
 
-		if (fileExists(responseDir + "/error_summary")) {
-			e.setSummary(strip(readAll(responseDir + "/error_summary")));
+		if (fileExists(responseDir + "/error/summary")) {
+			e.setSummary(strip(readAll(responseDir + "/error/summary")));
 		}
 
-		if (fileExists(responseDir + "/error_problem_description.html")) {
-			e.setProblemDescriptionHTML(readAll(responseDir + "/error_problem_description.html"));
-		} else if (fileExists(responseDir + "/error_problem_description.txt")) {
+		if (e.getAdvancedProblemDetails().empty()
+		 && fileExists(responseDir + "/error/advanced_problem_details"))
+		{
+			e.setAdvancedProblemDetails(strip(readAll(responseDir
+				+ "/error/advanced_problem_details")));
+		}
+
+		if (fileExists(responseDir + "/error/problem_description.html")) {
+			e.setProblemDescriptionHTML(readAll(responseDir + "/error/problem_description.html"));
+		} else if (fileExists(responseDir + "/error/problem_description.txt")) {
 			e.setProblemDescriptionHTML(escapeHTML(strip(readAll(
-				responseDir + "/error_problem_description.txt"))));
+				responseDir + "/error/problem_description.txt"))));
 		}
 
-		if (fileExists(responseDir + "/error_solution_description.html")) {
-			e.setSolutionDescriptionHTML(readAll(responseDir + "/error_solution_description.html"));
-		} else if (fileExists(responseDir + "/error_solution_description.txt")) {
+		if (fileExists(responseDir + "/error/solution_description.html")) {
+			e.setSolutionDescriptionHTML(readAll(responseDir + "/error/solution_description.html"));
+		} else if (fileExists(responseDir + "/error/solution_description.txt")) {
 			e.setSolutionDescriptionHTML(escapeHTML(strip(readAll(
-				responseDir + "/error_solution_description.txt"))));
+				responseDir + "/error/solution_description.txt"))));
 		}
 
-		if (fileExists(responseDir + "/envvars")) {
-			e.setEnvvars(readAll(responseDir + "/envvars"));
+		if (fileExists(envDumpDir + "/envvars")) {
+			e.setSubprocessEnvvars(readAll(envDumpDir + "/envvars"));
 		}
-		if (fileExists(responseDir + "/ulimits")) {
-			e.setUlimits(readAll(responseDir + "/ulimits"));
+		if (fileExists(envDumpDir + "/user_info")) {
+			e.setSubprocessUserInfo(readAll(envDumpDir + "/user_info"));
+		}
+		if (fileExists(envDumpDir + "/ulimits")) {
+			e.setSubprocessUlimits(readAll(envDumpDir + "/ulimits"));
 		}
 
-		loadAnnotationsFromResponseDir(e);
+		loadAnnotationsFromEnvDumpDir(e);
 	}
 
 	static void doClosedir(DIR *dir) {
 		closedir(dir);
 	}
 
-	void loadAnnotationsFromResponseDir(SpawnException &e) const {
-		string path = session.responseDir + "/annotations";
+	void loadAnnotationsFromEnvDumpDir(SpawnException &e) const {
+		string path = session.envDumpDir + "/annotations";
 		DIR *dir = opendir(path.c_str());
 		if (dir == NULL) {
 			return;
@@ -1095,8 +1083,9 @@ public:
 			sleepShortlyToCaptureMoreStdoutStderr();
 			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			loadJourneyStateFromResponseDir();
-			throw SpawnException(originalException, session.journey, config,
-				getStdoutErrData()).finalize();
+			SpawnException e(originalException, session.journey, config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			throw e.finalize();
 		}
 
 		UPDATE_TRACE_POINT();
@@ -1114,8 +1103,9 @@ public:
 			sleepShortlyToCaptureMoreStdoutStderr();
 			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			loadJourneyStateFromResponseDir();
-			throw SpawnException(originalException, session.journey, config,
-				getStdoutErrData()).finalize();
+			SpawnException e(originalException, session.journey, config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			throw e.finalize();
 		}
 	}
 };

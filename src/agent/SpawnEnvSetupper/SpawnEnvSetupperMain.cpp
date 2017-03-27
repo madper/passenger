@@ -76,6 +76,28 @@ extern "C" {
 }
 
 
+namespace Passenger {
+namespace SpawnEnvSetupper {
+
+	enum Mode {
+		BEFORE_MODE,
+		AFTER_MODE
+	};
+
+	struct Context {
+		string workDir;
+		Mode mode;
+		Json::Value args;
+		SpawningKit::JourneyStep step;
+		MonotonicTimeUsec startTime;
+	};
+
+} // namespace SpawnEnvSetupper
+} // namespace Passenger
+
+using namespace Passenger::SpawnEnvSetupper;
+
+
 static Json::Value
 readArgsJson(const string &workDir) {
 	Json::Reader reader;
@@ -100,10 +122,79 @@ initializeLogLevel(const Json::Value &args) {
 }
 
 static void
-setAndPrintCurrentErrorSummaryHTML(const string &workDir, const string &message) {
-	fprintf(stderr, "%s\n", message.c_str());
+recordJourneyStepInProgress(const Context &context,
+	SpawningKit::JourneyStep step)
+{
+	string stepString = journeyStepToStringLowerCase(step);
+	string path = context.workDir + "/response/steps/" + stepString;
+	try {
+		createFile((path + "/state").c_str(),
+			SpawningKit::journeyStepStateToString(SpawningKit::STEP_IN_PROGRESS));
+	} catch (const FileSystemException &e) {
+		fprintf(stderr, "Warning: unable to create %s/state: %s\n",
+			path.c_str(), e.what());
+	}
+}
 
-	string path = workDir + "/response/error_summary";
+static void
+recordJourneyStepComplete(const Context &context, SpawningKit::JourneyStep step,
+	SpawningKit::JourneyStepState state, MonotonicTimeUsec startTime)
+{
+	MonotonicTimeUsec now =
+		SystemTime::getMonotonicUsecWithGranularity<
+			SystemTime::GRAN_10MSEC>();
+	string stepString = journeyStepToStringLowerCase(step);
+	string path = context.workDir + "/response/" + stepString;
+	try {
+		makeDirTree(path);
+	} catch (const FileSystemException &e) {
+		fprintf(stderr, "Warning: unable to create %s: %s\n",
+			path.c_str(), e.what());
+		return;
+	}
+	try {
+		createFile((path + "/state").c_str(),
+			SpawningKit::journeyStepStateToString(state));
+	} catch (const FileSystemException &e) {
+		fprintf(stderr, "Warning: unable to create %s/state: %s\n",
+			path.c_str(), e.what());
+		return;
+	}
+	try {
+		createFile((path + "/duration").c_str(),
+			toString((now - startTime) / 1000000));
+	} catch (const FileSystemException &e) {
+		fprintf(stderr, "Warning: unable to create %s/duration: %s\n",
+			path.c_str(), e.what());
+	}
+}
+
+static void
+recordJourneyStepPerformed(const Context &context) {
+	recordJourneyStepComplete(context, context.step, SpawningKit::STEP_PERFORMED,
+		context.startTime);
+}
+
+static void
+recordJourneyStepErrored(const Context &context) {
+	recordJourneyStepComplete(context, context.step, SpawningKit::STEP_ERRORED,
+		context.startTime);
+}
+
+static void
+recordErrorCategory(const string &workDir, SpawningKit::ErrorCategory category) {
+	string path = workDir + "/response/error/category";
+	try {
+		createFile(path.c_str(), errorCategoryToString(category));
+	} catch (const FileSystemException &e) {
+		fprintf(stderr, "Warning: unable to create %s: %s\n",
+			path.c_str(), e.what());
+	}
+}
+
+static void
+recordAdvancedProblemDetails(const string &workDir, const string &message) {
+	string path = workDir + "/response/error/advanced_problem_details";
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
@@ -113,30 +204,32 @@ setAndPrintCurrentErrorSummaryHTML(const string &workDir, const string &message)
 }
 
 static void
-setCurrentErrorSource(const string &workDir, SpawningKit::SpawnException::ErrorSource errorSource) {
-	string path = workDir + "/response/error_source";
+recordErrorSummary(const string &workDir, const string &message,
+	bool isAlsoAdvancedProblemDetails)
+{
+	string path = workDir + "/response/error/summary";
 	try {
-		createFile(path.c_str(), SpawningKit::SpawnException::errorSourceToString(errorSource));
+		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
 		fprintf(stderr, "Warning: unable to create %s: %s\n",
 			path.c_str(), e.what());
 	}
-}
-
-static void
-setCurrentErrorKind(const string &workDir, SpawningKit::SpawnException::ErrorKind errorKind) {
-	string path = workDir + "/response/error_kind";
-	try {
-		createFile(path.c_str(), SpawningKit::SpawnException::errorKindToString(errorKind));
-	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+	if (isAlsoAdvancedProblemDetails) {
+		recordAdvancedProblemDetails(workDir, message);
 	}
 }
 
 static void
-setProblemDescriptionHTML(const string &workDir, const string &message) {
-	string path = workDir + "/response/problem_description.html";
+recordAndPrintErrorSummary(const string &workDir, const string &message,
+	bool isAlsoAdvancedProblemDetails)
+{
+	fprintf(stderr, "Error: %s\n", message.c_str());
+	recordErrorSummary(workDir, message, isAlsoAdvancedProblemDetails);
+}
+
+static void
+recordProblemDescriptionHTML(const string &workDir, const string &message) {
+	string path = workDir + "/response/error/problem_description.html";
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
@@ -146,8 +239,8 @@ setProblemDescriptionHTML(const string &workDir, const string &message) {
 }
 
 static void
-setSolutionDescriptionHTML(const string &workDir, const string &message) {
-	string path = workDir + "/response/solution_description.html";
+recordSolutionDescriptionHTML(const string &workDir, const string &message) {
+	string path = workDir + "/response/error/solution_description.html";
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
@@ -158,7 +251,7 @@ setSolutionDescriptionHTML(const string &workDir, const string &message) {
 
 static void
 dumpEnvvars(const string &workDir) {
-	FILE *f = fopen((workDir + "/response/envvars").c_str(), "w");
+	FILE *f = fopen((workDir + "/envdump/envvars").c_str(), "w");
 	if (f != NULL) {
 		unsigned int i = 0;
 		while (environ[i] != NULL) {
@@ -172,7 +265,7 @@ dumpEnvvars(const string &workDir) {
 
 static void
 dumpUserInfo(const string &workDir) {
-	FILE *f = fopen((workDir + "/user_info").c_str(), "w");
+	FILE *f = fopen((workDir + "/envdump/user_info").c_str(), "w");
 	if (f != NULL) {
 		pid_t pid = fork();
 		if (pid == 0) {
@@ -192,7 +285,7 @@ dumpUserInfo(const string &workDir) {
 
 static void
 dumpUlimits(const string &workDir) {
-	FILE *f = fopen((workDir + "/ulimit").c_str(), "w");
+	FILE *f = fopen((workDir + "/envdump/ulimits").c_str(), "w");
 	if (f != NULL) {
 		pid_t pid = fork();
 		if (pid == 0) {
@@ -248,25 +341,29 @@ canSwitchUser(const Json::Value &args) {
 }
 
 static void
-lookupUserGroup(const string &workDir, const Json::Value &args, uid_t *uid,
-	struct passwd **userInfo, gid_t *gid)
+lookupUserGroup(const Context &context, uid_t *uid, struct passwd **userInfo,
+	gid_t *gid)
 {
+	const Json::Value &args = context.args;
 	errno = 0;
 	*userInfo = getpwnam(args["user"].asCString());
 	if (*userInfo == NULL) {
 		int e = errno;
 		if (looksLikePositiveNumber(args["user"].asString())) {
 			fprintf(stderr,
-				"Warning: error looking up system user database entry for user '%s': %s (errno=%d)\n",
+				"Warning: error looking up system user database"
+				" entry for user '%s': %s (errno=%d)\n",
 				args["user"].asCString(), strerror(e), e);
 			*uid = (uid_t) atoi(args["user"].asString());
 		} else {
-			setCurrentErrorKind(workDir,
-				SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-			setAndPrintCurrentErrorSummaryHTML(workDir,
+			recordJourneyStepErrored(context);
+			recordErrorCategory(context.workDir,
+				SpawningKit::OPERATING_SYSTEM_ERROR);
+			recordAndPrintErrorSummary(context.workDir,
 				"Cannot lookup up system user database entry for user '"
 				+ args["user"].asString() + "': " + strerror(e)
-				+ " (errno=" + toString(e) + ")");
+				+ " (errno=" + toString(e) + ")",
+				true);
 			exit(1);
 		}
 	} else {
@@ -279,16 +376,19 @@ lookupUserGroup(const string &workDir, const Json::Value &args, uid_t *uid,
 		int e = errno;
 		if (looksLikePositiveNumber(args["group"].asString())) {
 			fprintf(stderr,
-				"Warning: error looking up system group database entry for group '%s': %s (errno=%d)\n",
+				"Warning: error looking up system group database entry for group '%s':"
+				" %s (errno=%d)\n",
 				args["group"].asCString(), strerror(e), e);
 			*gid = (gid_t) atoi(args["group"].asString());
 		} else {
-			setCurrentErrorKind(workDir,
-				SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-			setAndPrintCurrentErrorSummaryHTML(workDir,
+			recordJourneyStepErrored(context);
+			recordErrorCategory(context.workDir,
+				SpawningKit::OPERATING_SYSTEM_ERROR);
+			recordAndPrintErrorSummary(context.workDir,
 				"Cannot lookup up system group database entry for group '"
 				+ args["group"].asString() + "': " + strerror(e)
-				+ " (errno=" + toString(e) + ")");
+				+ " (errno=" + toString(e) + ")",
+				true);
 			exit(1);
 		}
 	} else {
@@ -297,7 +397,7 @@ lookupUserGroup(const string &workDir, const Json::Value &args, uid_t *uid,
 }
 
 static void
-enterLveJail(const string &workDir, const struct passwd *userInfo) {
+enterLveJail(const Context &context, const struct passwd *userInfo) {
 	string lveInitErr;
 	adhoc_lve::LibLve &liblve = adhoc_lve::LveInitSignleton::getInstance(&lveInitErr);
 
@@ -305,10 +405,12 @@ enterLveJail(const string &workDir, const struct passwd *userInfo) {
 		if (!lveInitErr.empty()) {
 			lveInitErr = ": " + lveInitErr;
 		}
-		setCurrentErrorKind(workDir,
-			SpawningKit::SpawnException::INTERNAL_ERROR);
-		setAndPrintCurrentErrorSummaryHTML(workDir,
-			"Failed to initialize LVE library: " + lveInitErr);
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::INTERNAL_ERROR);
+		recordAndPrintErrorSummary(context.workDir,
+			"Failed to initialize LVE library: " + lveInitErr,
+			true);
 		exit(1);
 	}
 
@@ -319,16 +421,18 @@ enterLveJail(const string &workDir, const struct passwd *userInfo) {
 	string jailErr;
 	int ret = liblve.jail(userInfo, jailErr);
 	if (ret < 0) {
-		setCurrentErrorKind(workDir,
-			SpawningKit::SpawnException::INTERNAL_ERROR);
-		setAndPrintCurrentErrorSummaryHTML(workDir,
-			"enterLve() failed: " + jailErr);
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::INTERNAL_ERROR);
+		recordAndPrintErrorSummary(context.workDir,
+			"enterLve() failed: " + jailErr,
+			true);
 		exit(1);
 	}
 }
 
 static void
-switchGroup(const string &workDir, uid_t uid, const struct passwd *userInfo, gid_t gid) {
+switchGroup(const Context &context, uid_t uid, const struct passwd *userInfo, gid_t gid) {
 	if (userInfo != NULL) {
 		bool setgroupsCalled = false;
 
@@ -346,12 +450,14 @@ switchGroup(const string &workDir, uid_t uid, const struct passwd *userInfo, gid
 				groups, &ngroups);
 			if (ret == -1) {
 				int e = errno;
-				setCurrentErrorKind(workDir,
-					SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-				setAndPrintCurrentErrorSummaryHTML(workDir,
-					"Error: getgrouplist(" + string(userInfo->pw_name) + ", "
+				recordJourneyStepErrored(context);
+				recordErrorCategory(context.workDir,
+					SpawningKit::OPERATING_SYSTEM_ERROR);
+				recordAndPrintErrorSummary(context.workDir,
+					"getgrouplist(" + string(userInfo->pw_name) + ", "
 					+ toString(gid) + ") failed: " + strerror(e)
-					+ " (errno=" + toString(e) + ")");
+					+ " (errno=" + toString(e) + ")",
+					true);
 				exit(1);
 			}
 
@@ -360,12 +466,14 @@ switchGroup(const string &workDir, uid_t uid, const struct passwd *userInfo, gid
 				gidset.reset(new gid_t[ngroups]);
 				if (setgroups(ngroups, gidset.get()) == -1) {
 					int e = errno;
-					setCurrentErrorKind(workDir,
-						SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-					setAndPrintCurrentErrorSummaryHTML(workDir,
-						"Error: setgroups(" + toString(ngroups)
+					recordJourneyStepErrored(context);
+					recordErrorCategory(context.workDir,
+						SpawningKit::OPERATING_SYSTEM_ERROR);
+					recordAndPrintErrorSummary(context.workDir,
+						"setgroups(" + toString(ngroups)
 						+ ", ...) failed: " + strerror(e) + " (errno="
-						+ toString(e) + ")");
+						+ toString(e) + ")",
+						true);
 					exit(1);
 				}
 			}
@@ -373,36 +481,42 @@ switchGroup(const string &workDir, uid_t uid, const struct passwd *userInfo, gid
 
 		if (!setgroupsCalled && initgroups(userInfo->pw_name, gid) == -1) {
 			int e = errno;
-			setCurrentErrorKind(workDir,
-				SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-			setAndPrintCurrentErrorSummaryHTML(workDir,
-				"Error: initgroups(" + string(userInfo->pw_name)
+			recordJourneyStepErrored(context);
+			recordErrorCategory(context.workDir,
+				SpawningKit::OPERATING_SYSTEM_ERROR);
+			recordAndPrintErrorSummary(context.workDir,
+				"initgroups(" + string(userInfo->pw_name)
 				+ ", " + toString(gid) + ") failed: " + strerror(e)
-				+ " (errno=" + toString(e) + ")");
+				+ " (errno=" + toString(e) + ")",
+				true);
 			exit(1);
 		}
 	}
 
 	if (setgid(gid) == -1) {
 		int e = errno;
-		setCurrentErrorKind(workDir,
-			SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-		setAndPrintCurrentErrorSummaryHTML(workDir,
-			"Error: setgid(" + toString(gid) + ") failed: "
-			+ strerror(e) + " (errno=" + toString(e) + ")");
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::OPERATING_SYSTEM_ERROR);
+		recordAndPrintErrorSummary(context.workDir,
+			"setgid(" + toString(gid) + ") failed: "
+			+ strerror(e) + " (errno=" + toString(e) + ")",
+			true);
 		exit(1);
 	}
 }
 
 static void
-switchUser(const string &workDir, uid_t uid, const struct passwd *userInfo) {
+switchUser(const Context &context, uid_t uid, const struct passwd *userInfo) {
 	if (setuid(uid) == -1) {
 		int e = errno;
-		setCurrentErrorKind(workDir,
-			SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-		setAndPrintCurrentErrorSummaryHTML(workDir,
-			"Error: setuid(" + toString(uid) + ") failed: " + strerror(e)
-			+ " (errno=" + toString(e) + ")");
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::OPERATING_SYSTEM_ERROR);
+		recordAndPrintErrorSummary(context.workDir,
+			"setuid(" + toString(uid) + ") failed: " + strerror(e)
+			+ " (errno=" + toString(e) + ")",
+			true);
 		exit(1);
 	}
 	if (userInfo != NULL) {
@@ -457,8 +571,8 @@ inferAllParentDirectories(const string &path) {
 }
 
 static void
-setCurrentWorkingDirectory(const string &workDir, const Json::Value &args) {
-	string appRoot = absolutizePath(args["app_root"].asString());
+setCurrentWorkingDirectory(const Context &context) {
+	string appRoot = absolutizePath(context.args["app_root"].asString());
 	vector<string> appRootAndParentDirs = inferAllParentDirectories(appRoot);
 	vector<string>::const_iterator it;
 	int ret;
@@ -472,32 +586,41 @@ setCurrentWorkingDirectory(const string &workDir, const Json::Value &args) {
 			memcpy(parent, it->c_str(), end - it->c_str());
 			parent[end - it->c_str()] = '\0';
 
-			setCurrentErrorKind(workDir,
-				SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-			setAndPrintCurrentErrorSummaryHTML(workDir,
+			recordJourneyStepErrored(context);
+			recordErrorCategory(context.workDir,
+				SpawningKit::OPERATING_SYSTEM_ERROR);
+			recordAndPrintErrorSummary(context.workDir,
 				"Directory '" + string(parent) + "' is inaccessible because of a"
-				" filesystem permission error.");
-			setProblemDescriptionHTML(workDir,
+				" filesystem permission error.",
+				false);
+			recordProblemDescriptionHTML(context.workDir,
+				"<p>"
 				"The " PROGRAM_NAME " application server tried to start the"
-				" web application as user '" + getProcessUsername() + "' and group '"
-				+ getGroupName(getgid()) + "'. During this process, "
-				SHORT_PROGRAM_NAME " must be able to access its application"
-				" root directory '" + appRoot + "'. However, the parent directory '"
-				+ parent + "' has wrong permissions, thereby preventing this"
-				" process from accessing its application root directory.");
-			setSolutionDescriptionHTML(workDir,
-				"Please fix the permissions of the directory '" + appRoot
+				" web application as user '" + escapeHTML(getProcessUsername())
+				+ "' and group '" + escapeHTML(getGroupName(getgid()))
+				+ "'. During this process, " SHORT_PROGRAM_NAME
+				" must be able to access its application root directory '"
+				+ escapeHTML(appRoot) + "'. However, the parent directory '"
+				+ escapeHTML(parent) + "' has wrong permissions, thereby preventing this"
+				" process from accessing its application root directory."
+				"</p>");
+			recordSolutionDescriptionHTML(context.workDir,
+				"<p class=\"sole-solution\">"
+				"Please fix the permissions of the directory '" + escapeHTML(appRoot)
 				+ "' in such a way that the directory is accessible by user '"
-				+ getProcessUsername() + "' and group '"
-				+ getGroupName(getgid()) + "'.");
+				+ escapeHTML(getProcessUsername()) + "' and group '"
+				+ escapeHTML(getGroupName(getgid())) + "'."
+				"</p>");
 			exit(1);
 		} else if (ret == -1) {
 			int e = errno;
-			setCurrentErrorKind(workDir,
-				SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-			setAndPrintCurrentErrorSummaryHTML(workDir,
+			recordJourneyStepErrored(context);
+			recordErrorCategory(context.workDir,
+				SpawningKit::OPERATING_SYSTEM_ERROR);
+			recordAndPrintErrorSummary(context.workDir,
 				"Unable to stat() directory '" + *it + "': "
-				+ strerror(e) + " (errno=" + toString(e) + ")");
+				+ strerror(e) + " (errno=" + toString(e) + ")",
+				true);
 			exit(1);
 		}
 	}
@@ -505,24 +628,28 @@ setCurrentWorkingDirectory(const string &workDir, const Json::Value &args) {
 	ret = chdir(appRoot.c_str());
 	if (ret != 0) {
 		int e = errno;
-		setCurrentErrorKind(workDir,
-			SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-		setAndPrintCurrentErrorSummaryHTML(workDir,
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::OPERATING_SYSTEM_ERROR);
+		recordAndPrintErrorSummary(context.workDir,
 			"Unable to change working directory to '" + appRoot + "': "
-			+ strerror(e) + " (errno=" + toString(e) + ")");
+			+ strerror(e) + " (errno=" + toString(e) + ")",
+			true);
 		if (e == EPERM || e == EACCES) {
-			setProblemDescriptionHTML(workDir,
+			recordProblemDescriptionHTML(context.workDir,
 				"<p>The " PROGRAM_NAME " application server tried to start the"
-				" web application as user " + getProcessUsername() + " and group "
-				+ getGroupName(getgid()) + ", with a working directory of "
-				+ appRoot.c_str() + ". However, it encountered a filesystem"
+				" web application as user " + escapeHTML(getProcessUsername())
+				+ " and group " + escapeHTML(getGroupName(getgid()))
+				+ ", with a working directory of "
+				+ escapeHTML(appRoot) + ". However, it encountered a filesystem"
 				" permission error while doing this.</p>");
 		} else {
-			setProblemDescriptionHTML(workDir,
+			recordProblemDescriptionHTML(context.workDir,
 				"<p>The " PROGRAM_NAME " application server tried to start the"
-				" web application as user " + getProcessUsername() + " and group "
-				+ getGroupName(getgid()) + ", with a working directory of "
-				+ appRoot.c_str() + ". However, it encountered a filesystem"
+				" web application as user " + escapeHTML(getProcessUsername())
+				+ " and group " + escapeHTML(getGroupName(getgid()))
+				+ ", with a working directory of "
+				+ escapeHTML(appRoot) + ". However, it encountered a filesystem"
 				" error while doing this.</p>");
 		}
 		exit(1);
@@ -609,58 +736,57 @@ commandArgsToString(const vector<const char *> &commandArgs) {
 }
 
 static void
-execNextCommand(const string &workDir, const Json::Value &args,
-	const char *mode, const string &shell)
+execNextCommand(const Context &context, const string &shell)
 {
 	vector<const char *> commandArgs;
+	SpawningKit::JourneyStep nextJourneyStep;
 
 	// Note: do not try to set a process title in this function by messing with argv[0].
 	// https://code.google.com/p/phusion-passenger/issues/detail?id=855
 
-	if (strcmp(mode, "--before") == 0) {
+	if (context.mode == BEFORE_MODE) {
 		assert(!shell.empty());
-		if (shouldLoadShellEnvvars(args, shell)) {
-			setCurrentErrorSource(workDir,
-				SpawningKit::SpawnException::OS_SHELL);
+		if (shouldLoadShellEnvvars(context.args, shell)) {
+			nextJourneyStep = SpawningKit::SUBPROCESS_OS_SHELL;
 			commandArgs.push_back(shell.c_str());
 			commandArgs.push_back("-lc");
 			commandArgs.push_back("exec \"$@\"");
 			commandArgs.push_back("SpawnEnvSetupperShell");
 		} else {
-			setCurrentErrorSource(workDir,
-				SpawningKit::SpawnException::SPAWN_ENV_SETUPPER_AFTER_SHELL);
+			nextJourneyStep = SpawningKit::SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL;
 		}
-		commandArgs.push_back(args["passenger_agent_path"].asCString());
+		commandArgs.push_back(context.args["passenger_agent_path"].asCString());
 		commandArgs.push_back("spawn-env-setupper");
-		commandArgs.push_back(workDir.c_str());
+		commandArgs.push_back(context.workDir.c_str());
 		commandArgs.push_back("--after");
 	} else {
-		if (args["starts_using_wrapper"].asBool()) {
-			setCurrentErrorSource(workDir, SpawningKit::SpawnException::WRAPPER);
+		if (context.args["starts_using_wrapper"].asBool()) {
+			nextJourneyStep = SpawningKit::SUBPROCESS_EXEC_WRAPPER;
 		} else {
-			setCurrentErrorSource(workDir, SpawningKit::SpawnException::APP);
+			nextJourneyStep = SpawningKit::SUBPROCESS_APP_LOAD_OR_EXEC;
 		}
 		commandArgs.push_back("/bin/sh");
 		commandArgs.push_back("-c");
-		commandArgs.push_back(args["start_command"].asCString());
+		commandArgs.push_back(context.args["start_command"].asCString());
 	}
 	commandArgs.push_back(NULL);
+
+	MonotonicTimeUsec nextStepStartTime =
+		SystemTime::getMonotonicUsecWithGranularity<
+			SystemTime::GRAN_10MSEC>();
+	recordJourneyStepPerformed(context);
+	recordJourneyStepInProgress(context, nextJourneyStep);
 
 	execvp(commandArgs[0], (char * const *) &commandArgs[0]);
 
 	int e = errno;
-	setCurrentErrorKind(workDir,
-		SpawningKit::SpawnException::OPERATING_SYSTEM_ERROR);
-	if (strcmp(mode, "--before") == 0) {
-		setCurrentErrorSource(workDir,
-			SpawningKit::SpawnException::SPAWN_ENV_SETUPPER_BEFORE_SHELL);
-	} else {
-		setCurrentErrorSource(workDir,
-			SpawningKit::SpawnException::SPAWN_ENV_SETUPPER_AFTER_SHELL);
-	}
-	setAndPrintCurrentErrorSummaryHTML(workDir,
+	recordJourneyStepComplete(context, nextJourneyStep,
+		SpawningKit::STEP_ERRORED, nextStepStartTime);
+	recordErrorCategory(context.workDir, SpawningKit::OPERATING_SYSTEM_ERROR);
+	recordAndPrintErrorSummary(context.workDir,
 		"Unable to execute command '" + commandArgsToString(commandArgs)
-		+ "': " + strerror(e) + " (errno=" + toString(e) + ")");
+		+ "': " + strerror(e) + " (errno=" + toString(e) + ")",
+		true);
 	exit(1);
 }
 
@@ -674,75 +800,97 @@ spawnEnvSetupperMain(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	string workDir = argv[2];
+	oxt::initialize();
+	oxt::setup_syscall_interruption_support();
+
+	Context context;
+	context.workDir = argv[2];
+	context.mode =
+		(strcmp(argv[3], "--before") == 0)
+		? BEFORE_MODE
+		: AFTER_MODE;
+	context.step =
+		(context.mode == BEFORE_MODE)
+		? SpawningKit::SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL
+		: SpawningKit::SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL;
+	context.startTime = SystemTime::getMonotonicUsecWithGranularity<
+		SystemTime::GRAN_10MSEC>();
+
 	setenv("IN_PASSENGER", "1", 1);
-	setenv("PASSENGER_SPAWN_WORK_DIR", workDir.c_str(), 1);
-	dumpAllEnvironmentInfo(workDir);
+	setenv("PASSENGER_SPAWN_WORK_DIR", context.workDir.c_str(), 1);
+	recordJourneyStepComplete(context, SpawningKit::SUBPROCESS_BEFORE_FIRST_EXEC,
+		SpawningKit::STEP_PERFORMED, context.startTime);
+	recordJourneyStepInProgress(context, context.step);
 
 	try {
-		oxt::initialize();
-		oxt::setup_syscall_interruption_support();
-
-		Json::Value args = readArgsJson(workDir);
-		const char *mode = argv[3];
-		bool shouldTrySwitchUser = canSwitchUser(args);
+		context.args = readArgsJson(context.workDir);
+		bool shouldTrySwitchUser = canSwitchUser(context.args);
 		string shell;
 
-		initializeLogLevel(args);
+		initializeLogLevel(context.args);
+		dumpAllEnvironmentInfo(context.workDir);
 
-		if (strcmp(mode, "--before") == 0) {
+		if (context.mode == BEFORE_MODE) {
 			struct passwd *userInfo = NULL;
 			uid_t uid;
 			gid_t gid;
 
-			setCurrentErrorSource(workDir,
-				SpawningKit::SpawnException::SPAWN_ENV_SETUPPER_BEFORE_SHELL);
-			setDefaultEnvvars(args);
-			dumpEnvvars(workDir);
+			setDefaultEnvvars(context.args);
+			dumpEnvvars(context.workDir);
 
 			if (shouldTrySwitchUser) {
-				lookupUserGroup(workDir, args, &uid, &userInfo, &gid);
+				lookupUserGroup(context, &uid, &userInfo, &gid);
 				shell = userInfo->pw_shell;
 			} else {
 				shell = lookupCurrentUserShell();
 			}
-			if (setUlimits(args)) {
-				dumpUlimits(workDir);
+			if (setUlimits(context.args)) {
+				dumpUlimits(context.workDir);
 			}
 			if (shouldTrySwitchUser) {
-				enterLveJail(workDir, userInfo);
-				switchGroup(workDir, uid, userInfo, gid);
-				dumpUserInfo(workDir);
+				enterLveJail(context, userInfo);
+				switchGroup(context, uid, userInfo, gid);
+				dumpUserInfo(context.workDir);
 
-				switchUser(workDir, uid, userInfo);
-				dumpEnvvars(workDir);
-				dumpUserInfo(workDir);
+				switchUser(context, uid, userInfo);
+				dumpEnvvars(context.workDir);
+				dumpUserInfo(context.workDir);
 			}
-		} else {
-			setCurrentErrorSource(workDir,
-				SpawningKit::SpawnException::SPAWN_ENV_SETUPPER_AFTER_SHELL);
 		}
 
-		setCurrentWorkingDirectory(workDir, args);
-		dumpEnvvars(workDir);
+		setCurrentWorkingDirectory(context);
+		dumpEnvvars(context.workDir);
 
-		if (strcmp(mode, "--after") == 0) {
-			setDefaultEnvvars(args);
-			setGivenEnvVars(args);
-			dumpEnvvars(workDir);
+		if (context.mode == AFTER_MODE) {
+			setDefaultEnvvars(context.args);
+			setGivenEnvVars(context.args);
+			dumpEnvvars(context.workDir);
 		}
 
-		execNextCommand(workDir, args, mode, shell);
+		execNextCommand(context, shell);
 	} catch (const oxt::tracable_exception &e) {
 		fprintf(stderr, "Error: %s\n%s\n",
 			e.what(), e.backtrace().c_str());
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::inferErrorCategoryFromAnotherException(
+				e, context.step));
+		recordErrorSummary(context.workDir, e.what(), true);
 		return 1;
 	} catch (const std::exception &e) {
 		fprintf(stderr, "Error: %s\n", e.what());
+		recordJourneyStepErrored(context);
+		recordErrorCategory(context.workDir,
+			SpawningKit::inferErrorCategoryFromAnotherException(
+				e, context.step));
+		recordErrorSummary(context.workDir, e.what(), true);
 		return 1;
 	}
 
 	// Should never be reached
-	fprintf(stderr, "*** BUG IN SpawnEnvSetupper ***: end of main() reached");
+	recordJourneyStepErrored(context);
+	recordAndPrintErrorSummary(context.workDir,
+		"*** BUG IN SpawnEnvSetupper ***: end of main() reached",
+		true);
 	return 1;
 }

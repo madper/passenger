@@ -6,7 +6,7 @@ Spawning an application process is complex, involving many steps and with many f
 
 Here is how SpawningKit is used. The caller supplies various parameters such as where the application is located, what language it's written in, what environment variables to apply, etc. SpawningKit then spawns the application process, checks whether the application spawned properly or whether it encountered an error, and then either returns an object that describes the resulting process or throws an exception that describes the failure.
 
-Reliability is a core feature in SpawningKit. When SpawningKit returns, you know for sure whether the process started correctly or not. If the application did not start correctly, then the resulting exception describes the failure in a detailed enough manner that allows users to debug the problem. SpawningKit also enforces timeouts everywhere so that stuck processes are handled as well.
+Reliability and visibility are core features in SpawningKit. When SpawningKit returns, you know for sure whether the process started correctly or not. If the application did not start correctly, then the resulting exception describes the failure in a detailed enough manner that allows users to pinpoint the source of the problem. SpawningKit also enforces timeouts everywhere so that stuck processes are handled as well.
 
 ## Important concepts and features
 
@@ -60,7 +60,7 @@ Regardless of whether SpawningKit is used to spawn an application with or withou
 
 ### Summary with examples
 
-To help you better understand the concepts, the following table displays an example of how all the concepts map to supported languages.
+To help you better understand the concepts, the following table displays an example of how all the concepts map to potentially supportable languages.
 
 ~~~
 | Generic apps (no   | SpawningKit-enabled,   | SpawningKit-enabled,  |
@@ -72,21 +72,21 @@ To help you better understand the concepts, the following table displays an exam
 |                    | without modifications  |                       |
 ~~~
 
-## The spawning journey
+## Overview of the spawning journey
 
 Spawning a process can take one of three routes:
 
  * If we are spawning a worker process, then it is either (1) spawned through a preloader, or (2) it isn't.
  * We may also (3) spawn the application as a preloader instead of as a worker.
 
-We refer to the walking of this route (performing all the steps involved in a route) a "journey". Below follows a high-level description of the routes. The individual steps can contain additional substeps and complexity, which are described in the source code.
+We refer to the walking of this route (performing all the steps involved in a route) a "journey". Below follows an overview of the routes.
 
-In the following describes, "(In SpawningKit)" refers to the process that runs SpawningKit, which is typically the Passenger Core.
+In the following descriptions, "(In SpawningKit)" refers to the process that runs SpawningKit, which is typically the Passenger Core.
 
 ### When spawning a process without a preloader
 
 The journey looks like this when no preloader is used:
- 
+
        (In SpawningKit)                  (In subprocess)
 
         Preparation
@@ -157,14 +157,14 @@ The Journey class represents a journey. It records all the steps taken so far, w
 
 ### The preparation and the HandshakePrepare class
 
-Inside the process running SpawningKit, before forking a subprocess (regardless of whether that is going to be a preloader or a worker), various preparation needs to be done. For example:
+Inside the process running SpawningKit, before forking a subprocess (regardless of whether that is going to be a preloader or a worker), various preparation needs to be done. This preparation work is implemented in Handshake/Prepare.h, in the HandshakePrepare class.
 
- * If applicable, finding a free port for the worker to listen on.
- * Creating a work directory for the purpose of performing the handshake. See section: The handshake. **Note**: the "work directory" in this context refers to this directory, not to the Unix concept of current working directory (`getpwd()`).
- * Dumping important information that the subprocess should know of, into the work directory. For example: whether it's going to be started in development or production mode, the process title to assume.
- * Calculating which exact arguments need to be passed to the `exec()` call. Because it's unsafe to do this after forking.
+Here is a list of the work involved in preparation:
 
-This is implemented in Handshake/Prepare.h, in the HandshakePrepare class.
+ * Creating a temporary directory for the purpose of performing a handshake with the subprocess. This directory is called a "work directory". Learn more in sections "The handshake and the HandshakePerform class" and "The work directory". **Note**: the "work directory" in this context refers to this directory, not to the Unix concept of current working directory (`getpwd()`).
+ * If the application is not SpawningKit-enabled, or if the caller explicitly instructed so, HandshakePrepare finds a free port for the worker process to listen on. This port number will be passed to the worker process.
+ * Dumping, into the work directory, important information that the subprocess should know of. For example: whether it's going to be started in development or production mode, the process title to assume. This information is called the _spawn arguments_.
+ * Calculating which exact arguments  need to be passed to the `exec()` call. Because it's unsafe to do this after forking.
 
 ### The handshake and the HandshakePerform class
 
@@ -180,7 +180,7 @@ The first thing the subprocess does is executing the SpawnEnvSetupper (which is 
  * Setting environment variables, ulimits, etc.
  * Changing the UID and GID of the process.
 
-It does all this by reading input from the work directory.
+It does all this by reading arguments from the work directory (see: "The work directory").
 
 The reason why this program exists is because all this work is unsafe to do inside the process that runs SpawningKit. Because after a `fork()`, one is only allowed to call async-signal-safe code. That means no memory allocations, or even calling `setenv()`.
 
@@ -188,9 +188,105 @@ You can see in the diagrams that SpawnEnvSetupper is called twice, once before a
 
 The SpawnEnvSetupper is implemented in SpawnEnvSetupperMain.cpp.
 
-### The preloader protocol
+## The work directory
 
-This subsection describes how "Tell preloader to spawn" and "Receive, process preloader response" work.
+The work directory is a temporary directory created at the very beginning of the spawning procedure, during the SpawningKit preparation step. Note that this "work directory" is distinct from the Unix concept of current working directory (`getpwd()`).
+
+The work directory's purpose is to:
+
+ 1. ...store information about the spawning procedure that the subprocess should know (the _spawn arguments_).
+ 2. ...receive information from the subprocess about how spawning went (the _response_). For example the subprocess can use it to signal.
+
+The work directory doesn't *have* to be used by the subprocess. The handshake procedure works fine even if the subprocess does not do anything with it.
+
+The work directory has the following structure. Entries that are created during the SpawningKit preparation step are marked with "[P]". All other entries may be created by the subprocess.
+
+~~~
+Work directory
+  |
+  +-- args.json         [P]
+  |
+  +-- args/             [P]
+  |     |
+  |     +-- app_root    [P]
+  |     +-- log_level   [P]
+  |     +-- ...etc...   [P]
+  |
+  +-- response/         [P]
+  |     |
+  |     +-- finish      [P]
+  |     |
+  |     +-- properties.json
+  |     |
+  |     +-- error/      [P]
+  |     |     |
+  |     |     +-- category
+  |     |     |
+  |     |     +-- summary
+  |     |     |
+  |     |     +-- problem_description.txt
+  |     |     +-- problem_description.html
+  |     |     |
+  |     |     +-- advanced_problem_details
+  |     |     |
+  |     |     +-- solution_description.txt
+  |     |     +-- solution_description.html
+  |     |
+  |     +-- steps/      [P]
+  |           |
+  |           +-- spawn_env_setupper_before_shell/  [P]
+  |           |     |
+  |           |     +-- state
+  |           |     |
+  |           |     +-- duration
+  |           |
+  |           +-- ...
+  |           |
+  |           +-- subprocess_listen/  [P]
+  |                 |
+  |                 +-- state
+  |                 |
+  |                 +-- duration
+  |
+  +-- envdump/            [P]
+        |
+        +-- envvars
+        |
+        +-- user_info
+        |
+        +-- ulimits
+        |
+        +-- annotations/  [P]
+              |
+              +-- some name
+              |
+              +-- some other name
+              |
+              +-- ...
+   
+~~~
+
+There are two entries representing the spawn arguments:
+
+ * `args.json` is a JSON file containing the arguments.
+
+   ~~~
+   { "app_root": "/path-to-app", "log_level": 3, ... }
+   ~~~
+
+ * `args/` is a directory containing the arguments. Inside this directory there are files, with each file representing a single argument. This directory provides an alternative way for subprocesses to read the arguments, which is convenient for subprocesses that don't have easy access to a JSON parser (e.g. Bash).
+
+The `response/` directory represents the response:
+
+ * `finish` is a FIFO file. If a wrapper is used, or if the application has explicit support for SpawningKit, then either of them can write to this FIFO file to indicate that it has done spawning. See "Mechanism for waiting until the application is up" for more information.
+ * If the subprocess fails, then it can communicate back specific error messages through the `error/` directory. See "Error reporting" for more information.
+ * The subprocess must regularly update the contents of the `steps/` directory to allow SpawningKit to know which step in the journey the subprocess is executing, and what the state and duration of each step is. See "Subprocess journey logging" for more information.
+
+The subprocess should dump information about its environment into the `envdump/` directory. Information includes environment variables (`envvars`), ulimits (`ulimits`), UID/GID (`user_info`), but also anything else that the subprocess deems relevant (`annotations/`). If spawning fails, then the information reported in this directory will be included in the error report (see "Error reporting").
+
+## The preloader protocol
+
+The "Tell preloader to spawn" and "Receive, process preloader response" steps in the spawn journey work as follows.
 
 Upon starting the preloader, the preloader listens for commands on a Unix domain socket. SpawningKit tells the preloader to spawn a worker process by sending a command over the socket. The command is a JSON document on a single line:
 
@@ -206,3 +302,41 @@ The preloader then forks a child process, and (before the next step in the journ
 ~~~
 
 The worker process's stdin, stdout and stderr are stored in FIFO files inside the work directory. SpawningKit then opens these FIFOs and proceeds with handshaking with the worker process.
+
+## Subprocess journey logging
+
+## Error reporting
+
+When something goes wrong during spawning, SpawningKit generates an error report. This report contains all the details you need to pinpoint the source of the problem, and is represented by the SpawnException class.
+
+A report contains the following information:
+
+ * A broad **category** in which the problem belongs. Is it an internal program error? An operating system (system call) error? A filesystem error? An I/O error?
+ * A **summary** of the problem. This typically consists of a single line line and is in plain text format.
+ * A detailed **problem description**, in HTML format. This is a longer piece of narrative that is typically structured in two parts: a high-level description of the problem, meant for beginners; as well as a **advanced problem details** part that aids debugging. For example, if a file system permission error was encountered, the high-level description could explain what a file system permission is and that it's not Passenger's fault. The advanced information part could display the filename in question, as well as the OS error code and OS error message.
+ * A detailed **solution description**, in HTML format. This is a longer piece of narrative that explains in a detailed manner how to solve the problem.
+ * Various **auxiliary details** which are not directly related to the error, but may be useful or necessary for the purpose of debugging the problem: stdout and stderr output so far; ulimits; environment variables; UID, GID of the process in which the error occurred; system metrics such as CPU and RAM; etcetera.
+ * A description of the **journey**: which steps inside the journey have been performed, are in progress, or have failed; and how long each step took.
+
+### How an error report is presented
+
+The error report is presented in two ways:
+
+ 1. In the terminal or in log files.
+ 2. In an HTML page.
+
+The summary is only meant to be displayed in the terminal or in the log files as a one-liner. It can contain basic details (such as the OS error code) but is not meant to contain finer details such as the subprocess stdout/stderr output, the environment variable dump, etc.
+
+Everything else is meant to be displayed in an HTML page. The HTML page explicitly does not include the summary, so the summary must not contain any information that isn't available in all the other fields.
+
+The advanced problem details are only displayed in the HTML page if one does not explicitly supply a problem description. See "Generating an error report" for more information.
+
+### Generating an error report
+
+Only a _category_ and a _journey description_ are required for generating an error report. The SpawnException class is capable of automatically generating an appropriate (albeit generic) summary, problem description and solution description based on the category and which step in the journey failed.
+
+If one doesn't supply a problem description, but does supply advanced problem details, then the automatically-generated problem description will include the advanced problem details. The advanced problem details aren't used in any other way, so if one does supply a problem description then one must take care of including the advanced problem details.
+
+Inside the SpawningKit codebase, an error report is generated by creating a SpawnException object. Subprocesses such as the preloader, the SpawnEnvSetupper, the wrapper and the app, can aid in generating the error report by providing their own details through the `error/` and `envdump/` subdirectories inside the work directory. In particular: subprocesses can provide the problem description and the solution description in one of two formats: either plain-text or HTML. So e.g. only one of `problem_description.txt` or `problem_description.html` need to exist, not both.
+
+## Mechanism for waiting until the application is up
