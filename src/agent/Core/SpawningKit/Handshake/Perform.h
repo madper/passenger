@@ -1069,7 +1069,9 @@ public:
 		TRACE_POINT();
 		ScopeGuard guard(boost::bind(&HandshakePerform::cleanup, this));
 
-		session.journey.setStepInProgress(SPAWNING_KIT_HANDSHAKE_PERFORM);
+		// We do not set SPAWNING_KIT_HANDSHAKE_PERFORM to the IN_PROGRESS or
+		// PERFORMED state here. That will be done by the caller because
+		// it may want to perform additional preparation.
 
 		try {
 			initializeStdchannelsCapturing();
@@ -1096,7 +1098,6 @@ public:
 			boost::unique_lock<boost::mutex> l(syncher);
 			waitUntilSpawningFinished(l);
 			Result result = handleResponse();
-			session.journey.setStepPerformed(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			loadJourneyStateFromResponseDir();
 			return result;
 		} catch (const SpawnException &) {

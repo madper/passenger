@@ -122,26 +122,14 @@ private:
 		config->spawnMethod = P_STATIC_STRING("direct");
 	}
 
-public:
-	DirectSpawner(const Context *context)
-		: Spawner(context)
-		{ }
-
-	virtual Result spawn(const AppPoolOptions &options) {
+	Result internalSpawn(const AppPoolOptions &options, Config &config,
+		HandshakeSession &session)
+	{
 		TRACE_POINT();
-		boost::this_thread::disable_interruption di;
-		boost::this_thread::disable_syscall_interruption dsi;
-		P_DEBUG("Spawning new process: appRoot=" << options.appRoot);
-		possiblyRaiseInternalError(options);
-
-		Config config(options);
 		Json::Value extraArgs;
 		Result result;
-		HandshakeSession session(context, config, SPAWN_DIRECTLY);
 
-		// TODO: we should catch exceptions here and rethrow as SpawnException
-
-		setConfigFromAppPoolOptions(config, extraArgs, options);
+		setConfigFromAppPoolOptions(&config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();
 
 		Pipe stdinChannel = createPipe(__FILE__, __LINE__);
@@ -153,9 +141,13 @@ public:
 		LveLoggingDecorator::logLveEnter(scopedLveEnter,
 			session.uid,
 			config.lveMinUid);
+		string agentFilename = context->resourceLocator
+			->findSupportBinary(AGENT_EXE);
 
+		session.journey.setStepPerformed(SPAWNING_KIT_PREPARATION);
 		session.journey.setStepInProgress(SPAWNING_KIT_FORK_SUBPROCESS);
 		session.journey.setStepInProgress(SUBPROCESS_BEFORE_FIRST_EXEC);
+
 		pid_t pid = syscalls::fork();
 		if (pid == 0) {
 			purgeStdio(stdout);
@@ -168,8 +160,8 @@ public:
 			dup2(stdoutAndErrCopy, 1);
 			dup2(stdoutAndErrCopy, 2);
 			closeAllFileDescriptors(2);
-			execlp("./play/setupper",
-				"./play/setupper",
+			execlp(agentFilename.c_str(),
+				agentFilename.c_str(),
 				"spawn-env-setupper",
 				session.workDir->getPath().c_str(),
 				"--before",
@@ -177,20 +169,19 @@ public:
 
 			int e = errno;
 			fprintf(stderr, "Cannot execute \"%s\": %s (errno=%d)\n",
-				??????, strerror(e), e);
+				agentFilename.c_str(), strerror(e), e);
 			fflush(stderr);
 			_exit(1);
 
 		} else if (pid == -1) {
 			int e = errno;
 			session.journey.setStepErrored(SPAWNING_KIT_FORK_SUBPROCESS);
-			session.journey.setStepNotStarted(SPAWNING_KIT_FORK_SUBPROCESS);
-			SpawnException e(OPERATING_SYSTEM_ERROR, session.journey, session.config);
-			e.setSummary("Cannot fork a new process: " + strerror(e)
+			SpawnException ex(OPERATING_SYSTEM_ERROR, session.journey, &config);
+			ex.setSummary(StaticString("Cannot fork a new process: ") + strerror(e)
 				+ " (errno=" + toString(e) + ")");
-			e.setAdvancedProblemDetails("Cannot fork a new process: " + strerror(e)
-				+ " (errno=" + toString(e) + ")");
-			throw e.finalize();
+			ex.setAdvancedProblemDetails(StaticString("Cannot fork a new process: ")
+				+ strerror(e) + " (errno=" + toString(e) + ")");
+			throw ex.finalize();
 
 		} else {
 			UPDATE_TRACE_POINT();
@@ -214,11 +205,38 @@ public:
 				stdoutAndErrChannel.first).execute();
 
 			UPDATE_TRACE_POINT();
-			detachProcess(result["pid"].asInt());
+			detachProcess(session.result.pid);
 			guard.clear();
+			session.journey.setStepPerformed(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			P_DEBUG("Process spawning done: appRoot=" << options.appRoot <<
-				", pid=" << result.pid);
+				", pid=" << session.result.pid);
 			return result;
+		}
+	}
+
+public:
+	DirectSpawner(Context *context)
+		: Spawner(context)
+		{ }
+
+	virtual Result spawn(const AppPoolOptions &options) {
+		TRACE_POINT();
+		boost::this_thread::disable_interruption di;
+		boost::this_thread::disable_syscall_interruption dsi;
+		P_DEBUG("Spawning new process: appRoot=" << options.appRoot);
+		possiblyRaiseInternalError(options);
+
+		Config config;
+		HandshakeSession session(*context, config, SPAWN_DIRECTLY);
+		session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
+
+		try {
+			return internalSpawn(options, config, session);
+		} catch (const SpawnException &) {
+			throw;
+		} catch (const std::exception &originalException) {
+			throw SpawnException(originalException, session.journey,
+				&config).finalize();
 		}
 	}
 };

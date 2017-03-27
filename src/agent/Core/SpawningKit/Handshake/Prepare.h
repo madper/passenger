@@ -482,11 +482,14 @@ public:
 	void execute() {
 		TRACE_POINT();
 
+		// We do not set SPAWNING_KIT_PREPARATION to the IN_PROGRESS or
+		// PERFORMED state here. That will be done by the caller because
+		// it may want to perform additional preparation.
+
 		try {
 			session.context = context;
 			session.config = config;
 			session.timeoutUsec = config->startTimeoutMsec * 1000;
-			session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
 			timer.start();
 
 			resolveUserAndGroup();
@@ -505,8 +508,6 @@ public:
 			dumpArgsIntoWorkDir();
 
 			adjustTimeout();
-
-			session.journey.setStepPerformed(SPAWNING_KIT_PREPARATION);
 		} catch (const SpawnException &) {
 			session.journey.setStepErrored(SPAWNING_KIT_PREPARATION);
 			throw;

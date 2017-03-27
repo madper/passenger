@@ -27,6 +27,7 @@
 #define _PASSENGER_SPAWNING_KIT_SPAWNER_H_
 
 #include <boost/shared_ptr.hpp>
+#include <oxt/system_calls.hpp>
 
 #include <modp_b64.h>
 
@@ -127,6 +128,18 @@ protected:
 		/******************/
 
 		config->internStrings();
+	}
+
+	static void nonInterruptableKillAndWaitpid(pid_t pid) {
+		boost::this_thread::disable_syscall_interruption dsi;
+		syscalls::kill(pid, SIGKILL);
+		syscalls::waitpid(pid, NULL, 0);
+	}
+
+	static void possiblyRaiseInternalError(const AppPoolOptions &options) {
+		if (options.raiseInternalError) {
+			throw RuntimeException("An internal error!");
+		}
 	}
 
 public:
