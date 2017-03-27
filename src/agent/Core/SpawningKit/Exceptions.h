@@ -176,7 +176,8 @@ private:
 
 	static string createDefaultProblemDescription(ErrorCategory category,
 		const Journey &journey, const Config &config,
-		const StaticString &advancedProblemDetails)
+		const StaticString &advancedProblemDetails,
+		const StaticString &stdoutAndErrData)
 	{
 		StaticString categoryStringWithIndefiniteArticle =
 			getErrorCategoryPhraseWithIndefiniteArticle(category,
@@ -190,7 +191,7 @@ private:
 			case START_PRELOADER:
 				switch (journey.getFirstFailedStep()) {
 				case SPAWNING_KIT_PREPARATION:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " had to first start an internal"
@@ -198,16 +199,16 @@ private:
 						SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle +
 						" while performing this preparation work",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_FORK_SUBPROCESS:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. But " SHORT_PROGRAM_NAME
 						" encountered " + categoryStringWithIndefiniteArticle
 						+ " while creating a subprocess",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_HANDSHAKE_PERFORM:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " first started an internal"
@@ -216,9 +217,9 @@ private:
 						+ categoryStringWithIndefiniteArticle +
 						" while communicating with"
 						" this tool about its startup",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_BEFORE_FIRST_EXEC:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " had to first start an internal"
@@ -226,9 +227,9 @@ private:
 						" the subprocess which was supposed to execute this"
 						" preloader encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_OS_SHELL:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " had to first start an internal"
@@ -236,10 +237,10 @@ private:
 						" in turn had to be started through the operating"
 						" system (OS) shell. But the OS shell encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL:
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. In doing so, "
 						SHORT_PROGRAM_NAME " had to first start an internal"
@@ -248,10 +249,10 @@ private:
 						" tool called the \"SpawnEnvSetupper\". But the"
 						" SpawnEnvSetupper encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_EXEC_WRAPPER:
 					if (!config.genericApp && config.startsUsingWrapper && config.wrapperSuppliedByThirdParty) {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME " helper tool called"
@@ -260,9 +261,9 @@ private:
 							" was unable to execute that helper tool"
 							" because it encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					} else {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME "-internal helper tool called"
@@ -270,42 +271,42 @@ private:
 							" was unable to execute that helper tool"
 							" because it encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					}
 				case SUBPROCESS_WRAPPER_PREPARATION:
 					if (!config.genericApp && config.startsUsingWrapper && config.wrapperSuppliedByThirdParty) {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME " helper tool called"
 							" the \"wrapper\"). This tool is not part of "
 							SHORT_PROGRAM_NAME ". But that helper tool encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					} else {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME "-internal helper tool called"
 							" the \"wrapper\"). But that helper tool encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					}
 				case SUBPROCESS_APP_LOAD_OR_EXEC:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. But the application"
 						" itself (and not " SHORT_PROGRAM_NAME ") encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_LISTEN:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. The application tried "
 						" to setup a socket for accepting connections,"
 						" but in doing so it encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				default:
 					P_BUG("Unsupported preloader journey step "
 						<< toString((int) journey.getFirstFailedStep()));
@@ -313,99 +314,99 @@ private:
 			default:
 				switch (journey.getFirstFailedStep()) {
 				case SPAWNING_KIT_PREPARATION:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application, but " SHORT_PROGRAM_NAME
 						" encountered " + categoryStringWithIndefiniteArticle
 						+ " while performing preparation work",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_FORK_SUBPROCESS:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. But " SHORT_PROGRAM_NAME
 						" encountered " + categoryStringWithIndefiniteArticle
 						+ " while creating a subprocess",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_CONNECT_TO_PRELOADER:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
 						SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle
 						+ " while connecting to this helper process",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
 						SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle
 						+ " while sending a command to this helper process",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
 						SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle
 						+ " while receiving a response to this helper process",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
 						SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle
 						+ " while parsing a response from this helper process",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application by communicating with a"
 						" helper process that we call a \"preloader\". However, "
 						SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle
 						+ " while processing a response from this helper process",
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SPAWNING_KIT_HANDSHAKE_PERFORM:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. Everything was looking OK,"
 						" but then suddenly " SHORT_PROGRAM_NAME " encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_BEFORE_FIRST_EXEC:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. " SHORT_PROGRAM_NAME
 						" launched a subprocess which was supposed to"
 						" execute the application, but instead that"
 						" subprocess encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_OS_SHELL:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application through the operating"
 						" system (OS) shell. But the OS shell encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_BEFORE_SHELL:
 				case SUBPROCESS_SPAWN_ENV_SETUPPER_AFTER_SHELL:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application through a "
 						SHORT_PROGRAM_NAME "-internal helper tool called the"
 						" SpawnEnvSetupper. But that helper tool encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_EXEC_WRAPPER:
 					if (!config.genericApp && config.startsUsingWrapper && config.wrapperSuppliedByThirdParty) {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME " helper tool called"
@@ -414,9 +415,9 @@ private:
 							" was unable to execute that helper tool because"
 							" it encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					} else {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME "-internal helper tool called"
@@ -424,50 +425,50 @@ private:
 							" was unable to execute that helper tool because"
 							" it encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					}
 				case SUBPROCESS_WRAPPER_PREPARATION:
 					if (!config.genericApp && config.startsUsingWrapper && config.wrapperSuppliedByThirdParty) {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME " helper tool called"
 							" the \"wrapper\". This helper tool is not part of "
 							SHORT_PROGRAM_NAME ". But that helper tool encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					} else {
-						return wrapInParaAndMaybeAddAdvancedProblemDetails(
+						return wrapInParaAndMaybeAddErrorMessages(
 							"The " PROGRAM_NAME " application server tried to"
 							" start the web application through a "
 							SHORT_PROGRAM_NAME "-internal helper tool called"
 							" the \"wrapper\". But that helper tool encountered "
 							+ categoryStringWithIndefiniteArticle,
-							category, advancedProblemDetails);
+							category, advancedProblemDetails, stdoutAndErrData);
 					}
 				case SUBPROCESS_APP_LOAD_OR_EXEC:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. But the application"
 						" itself (and not " SHORT_PROGRAM_NAME ") encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application through a "
 						SHORT_PROGRAM_NAME "-internal helper tool called"
 						" the \"preloader\". But the preloader encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				case SUBPROCESS_LISTEN:
-					return wrapInParaAndMaybeAddAdvancedProblemDetails(
+					return wrapInParaAndMaybeAddErrorMessages(
 						"The " PROGRAM_NAME " application server tried to"
 						" start the web application. The application tried "
 						" to setup a socket for accepting connections,"
 						" but in doing so it encountered "
 						+ categoryStringWithIndefiniteArticle,
-						category, advancedProblemDetails);
+						category, advancedProblemDetails, stdoutAndErrData);
 				default:
 					P_BUG("Unrecognized journey step " <<
 						toString((int) journey.getFirstFailedStep()));
@@ -482,9 +483,11 @@ private:
 			// step taking too much time.
 			// The way to debug a timeout error is by looking at the timings
 			// of each step.
-			return "<p>The " PROGRAM_NAME " application server tried"
+			return wrapInParaAndMaybeAddErrorMessages(
+				"The " PROGRAM_NAME " application server tried"
 				" to start the web application, but this took too much time,"
-				" so " SHORT_PROGRAM_NAME " put a stop to that.</p>";
+				" so " SHORT_PROGRAM_NAME " put a stop to that",
+				TIMEOUT_ERROR, string(), stdoutAndErrData);
 
 		default:
 			P_BUG("Unrecognized error category " + toString((int) category));
@@ -649,24 +652,29 @@ private:
 		return getErrorCategoryPhraseWithIndefiniteArticle(category, beginOfSentence);
 	}
 
-	static string wrapInParaAndMaybeAddAdvancedProblemDetails(const string &message,
-		ErrorCategory category, const string &advancedProblemDetails)
+	static string wrapInParaAndMaybeAddErrorMessages(const StaticString &message,
+		ErrorCategory category, const StaticString &advancedProblemDetails,
+		const StaticString &stdoutAndErrData)
 	{
-		if (advancedProblemDetails.empty()) {
-			return "<p>" + message + ".</p>";
-		} else if (category == INTERNAL_ERROR || category == FILE_SYSTEM_ERROR) {
-			return "<p>" + message + ":</p>" +
-				"<pre>" + escapeHTML(advancedProblemDetails) + "</pre>";
-		} else if (category == IO_ERROR) {
-			return "<p>" + message
-				+ ". The error reported by the I/O layer is:</p>" +
-				"<pre>" + escapeHTML(advancedProblemDetails) + "</pre>";
-		} else {
-			P_ASSERT_EQ(category, OPERATING_SYSTEM_ERROR);
-			return "<p>" + message
-				+ ". The error reported by the operating system is:</p>" +
-				"<pre>" + escapeHTML(advancedProblemDetails) + "</pre>";
+		string result = "<p>" + message + ".</p>";
+		if (!advancedProblemDetails.empty()) {
+			if (category == INTERNAL_ERROR || category == FILE_SYSTEM_ERROR) {
+				result.append("<p>Error details:</p>"
+					"<pre>" + escapeHTML(advancedProblemDetails) + "</pre>");
+			} else if (category == IO_ERROR) {
+				result.append("<p>The error reported by the I/O layer is:</p>"
+					"<pre>" + escapeHTML(advancedProblemDetails) + "</pre>");
+			} else {
+				P_ASSERT_EQ(category, OPERATING_SYSTEM_ERROR);
+				result.append("<p>The error reported by the operating system is:</p>"
+					"<pre>" + escapeHTML(advancedProblemDetails) + "</pre>");
+			}
 		}
+		if (!stdoutAndErrData.empty()) {
+			result.append("<p>The stdout/stderr output of the subprocess so far is:</p>"
+				"<pre>" + escapeHTML(stdoutAndErrData) + "</pre>");
+		}
+		return result;
 	}
 
 	static string gatherEnvvars() {
@@ -798,7 +806,8 @@ public:
 		}
 		if (problemDescription.empty()) {
 			problemDescription = createDefaultProblemDescription(
-				category, journey, config, advancedProblemDetails);
+				category, journey, config, advancedProblemDetails,
+				stdoutAndErrData);
 		}
 		if (solutionDescription.empty()) {
 			solutionDescription = createDefaultSolutionDescription(

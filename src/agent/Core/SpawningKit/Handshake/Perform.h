@@ -234,6 +234,7 @@ private:
 
 		if (session.timeoutUsec == 0) {
 			sleepShortlyToCaptureMoreStdoutStderr();
+			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			loadJourneyStateFromResponseDir();
 			SpawnException e(
 				TIMEOUT_ERROR,
@@ -1079,6 +1080,8 @@ public:
 			if (!config->genericApp) {
 				startWatchingFinishSignal();
 			}
+		} catch (const SpawnException &) {
+			throw;
 		} catch (const std::exception &originalException) {
 			sleepShortlyToCaptureMoreStdoutStderr();
 			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM);
@@ -1097,7 +1100,6 @@ public:
 			loadJourneyStateFromResponseDir();
 			return result;
 		} catch (const SpawnException &) {
-			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			throw;
 		} catch (const std::exception &originalException) {
 			sleepShortlyToCaptureMoreStdoutStderr();
