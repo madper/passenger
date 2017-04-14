@@ -892,8 +892,10 @@ public:
 		return annotations;
 	}
 
-	void setAnnotation(const HashedStaticString &name, const string &value) {
-		annotations.insert(name, value, true);
+	void setAnnotation(const HashedStaticString &name, const string &value,
+		bool overwrite = true)
+	{
+		annotations.insert(name, value, overwrite);
 	}
 };
 

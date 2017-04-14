@@ -41,17 +41,19 @@
 
 #include <Logging.h>
 #include <Constants.h>
+#include <Exceptions.h>
 #include <DataStructures/StringKeyTable.h>
 #include <Utils/SystemTime.h>
 #include <Utils/IOUtils.h>
 #include <Utils/BufferedIO.h>
 #include <Utils/JsonUtils.h>
 #include <Utils/ScopeGuard.h>
+#include <Utils/ProcessMetricsCollector.h>
 #include <LveLoggingDecorator.h>
 #include <Core/SpawningKit/Spawner.h>
 #include <Core/SpawningKit/Exceptions.h>
 #include <Core/SpawningKit/PipeWatcher.h>
-#include <Core/SpawningKit/Handshake/BackgroundIOCapturer.h.h>
+#include <Core/SpawningKit/Handshake/BackgroundIOCapturer.h>
 
 namespace Passenger {
 namespace SpawningKit {
@@ -63,28 +65,6 @@ using namespace oxt;
 
 class SmartSpawner: public Spawner {
 private:
-	/**
-	 * Structure containing arguments and working state for negotiating
-	 * the preloader startup protocol.
-	 */
-	struct StartupDetails {
-		/****** Arguments ******/
-		pid_t pid;
-		FileDescriptor adminSocket;
-		BufferedIO io;
-		BackgroundIOCapturerPtr stderrCapturer;
-		WorkDirPtr workDir;
-		const Options *options;
-
-		/****** Working state ******/
-		unsigned long long timeout;
-
-		StartupDetails() {
-			options = NULL;
-			timeout = 0;
-		}
-	};
-
 	const vector<string> preloaderCommand;
 	StringKeyTable<string> preloaderAnnotations;
 	AppPoolOptions options;
@@ -96,12 +76,9 @@ private:
 
 	// Preloader information.
 	pid_t pid;
-	FileDescriptor adminSocket;
+	FileDescriptor preloaderStdin;
 	string socketAddress;
 	unsigned long long m_lastUsed;
-	// Upon starting the preloader, its preparation info is stored here
-	// for future reference.
-	SpawnPreparationInfo preparation;
 
 	string getPreloaderCommandString() const {
 		string result;
@@ -114,37 +91,6 @@ private:
 			result.append(preloaderCommand[i]);
 		}
 		return result;
-	}
-
-	vector<string> createRealPreloaderCommand(const Options &options,
-		shared_array<const char *> &args)
-	{
-		string agentFilename = config->resourceLocator->findSupportBinary(AGENT_EXE);
-		vector<string> command;
-
-		if (shouldLoadShellEnvvars(options, preparation)) {
-			command.push_back(preparation.userSwitching.shell);
-			command.push_back(preparation.userSwitching.shell);
-			command.push_back("-lc");
-			command.push_back("exec \"$@\"");
-			command.push_back("SpawnPreparerShell");
-		} else {
-			command.push_back(agentFilename);
-		}
-		command.push_back(agentFilename);
-		command.push_back("spawn-preparer");
-		command.push_back(preparation.appRoot);
-		command.push_back(serializeEnvvarsFromPoolOptions(options));
-		command.push_back(preloaderCommand[0]);
-		// Note: do not try to set a process title here.
-		// https://code.google.com/p/phusion-passenger/issues/detail?id=855
-		command.push_back(preloaderCommand[0]);
-		for (unsigned int i = 1; i < preloaderCommand.size(); i++) {
-			command.push_back(preloaderCommand[i]);
-		}
-
-		createCommandArgs(command, args);
-		return command;
 	}
 
 	void setConfigFromAppPoolOptions(Config *config, Json::Value &extraArgs,
@@ -181,12 +127,12 @@ private:
 	}
 
 	void internalStartPreloader(Config &config, HandshakeSession &session) {
+		TRACE_POINT();
 		Json::Value extraArgs;
 
-		setConfigFromAppPoolOptions(config, extraArgs, options);
+		setConfigFromAppPoolOptions(&config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();
 
-		vector<string> command = createRealPreloaderCommand(options, args);
 		Pipe stdinChannel = createPipe(__FILE__, __LINE__);
 		Pipe stdoutAndErrChannel = createPipe(__FILE__, __LINE__);
 		adhoc_lve::LveEnter scopedLveEnter(LveLoggingDecorator::lveInitOnce(),
@@ -230,6 +176,7 @@ private:
 
 		} else if (pid == -1) {
 			int e = errno;
+			UPDATE_TRACE_POINT();
 			session.journey.setStepErrored(SPAWNING_KIT_FORK_SUBPROCESS);
 			SpawnException ex(OPERATING_SYSTEM_ERROR, session.journey, &config);
 			ex.setSummary(StaticString("Cannot fork a new process: ") + strerror(e)
@@ -259,7 +206,7 @@ private:
 
 			HandshakePerform(session, pid, stdinChannel.second,
 				stdoutAndErrChannel.first).execute();
-			string socketAddress = findSocketAddress(session);
+			string socketAddress = findPreloaderCommandSocketAddress(session);
 			{
 				boost::lock_guard<boost::mutex> l(simpleFieldSyncher);
 				this->pid = pid;
@@ -269,7 +216,7 @@ private:
 					session.envDumpDir);
 			}
 
-			PipeWatcherPtr watcherr = boost::make_shared<PipeWatcher>(context,
+			PipeWatcherPtr watcher = boost::make_shared<PipeWatcher>(context,
 				stdoutAndErrChannel.first, "output", pid);
 			watcher->initialize();
 			watcher->start();
@@ -280,7 +227,6 @@ private:
 			P_INFO("Preloader for " << options.appRoot <<
 				" started on PID " << pid <<
 				", listening on " << socketAddress);
-			return result;
 		}
 	}
 
@@ -311,14 +257,14 @@ private:
 			boost::lock_guard<boost::mutex> l(simpleFieldSyncher);
 			pid = -1;
 			socketAddress.clear();
-			preloaderStdin = -1;
+			preloaderStdin.close(false);
 			preloaderAnnotations.clear();
 		}
 	}
 
 	FileDescriptor connectToPreloader(HandshakeSession &session) {
 		TRACE_POINT();
-		FileDescriptor fd = connectToServer(socketAddress, __FILE__, __LINE__);
+		FileDescriptor fd(connectToServer(socketAddress, __FILE__, __LINE__), NULL, 0);
 		P_LOG_FILE_DESCRIPTOR_PURPOSE(fd, "Preloader " << pid
 			<< " (" << session.config->appRoot << ") connection");
 		return fd;
@@ -446,7 +392,8 @@ private:
 					" to start the web application by communicating with a"
 					" helper process that we call a \"preloader\". However,"
 					" this helper process crashed unexpectedly:</p>"
-					"<pre>" + escapeHTML(originalException.what()) + "</pre>");
+					"<pre>" + escapeHTML(crashException2.getException().what())
+					+ "</pre>");
 				throw e.finalize();
 			}
 		}
@@ -480,7 +427,7 @@ private:
 		session.journey.setStepPerformed(SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER);
 		session.journey.setStepInProgress(SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER);
 		try {
-			line = readForkCommandResponse(session);
+			line = readForkCommandResponse(session, fd);
 		} catch (const SystemException &e) {
 			throw PreloaderCrashed(e);
 		} catch (const IOException &e) {
@@ -511,9 +458,9 @@ private:
 		Json::Value doc;
 
 		doc["command"] = "spawn";
-		doc["work_dir"] = session->workDir->getPath();
+		doc["work_dir"] = session.workDir->getPath();
 
-		writeExact(fd, Json::FastWriter.write(doc), &session.timeoutUsec);
+		writeExact(fd, Json::FastWriter().write(doc), &session.timeoutUsec);
 	}
 
 	string readForkCommandResponse(HandshakeSession &session, const FileDescriptor &fd) {
@@ -526,7 +473,7 @@ private:
 			session.journey.setStepErrored(SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER);
 
 			SpawnException e(INTERNAL_ERROR, session.journey, session.config);
-			addAnnotationsToExceptions(preloaderAnnotations, e);
+			addPreloaderAnnotations(e);
 			e.setSummary("The preloader process sent a response that exceeds the maximum size limit.");
 			e.setProblemDescriptionHTML(
 				"<p>The " PROGRAM_NAME " application server tried"
@@ -549,10 +496,11 @@ private:
 		Json::Value doc;
 		Json::Reader reader;
 
-		if (!reader.parse(data, &doc)) {
+		if (!reader.parse(data, doc)) {
 			session.journey.setStepErrored(SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER);
 
 			SpawnException e(INTERNAL_ERROR, session.journey, session.config);
+			addPreloaderAnnotations(e);
 			e.setSummary("The preloader process sent an unparseable response: " + data);
 			e.setProblemDescriptionHTML(
 				"<p>The " PROGRAM_NAME " application server tried"
@@ -576,6 +524,7 @@ private:
 			session.journey.setStepErrored(SPAWNING_KIT_PARSE_RESPONSE_FROM_PRELOADER);
 
 			SpawnException e(INTERNAL_ERROR, session.journey, session.config);
+			addPreloaderAnnotations(e);
 			e.setSummary("The preloader process sent a response that does not"
 				" match the expected structure: " + stringifyJson(doc));
 			e.setProblemDescriptionHTML(
@@ -640,19 +589,19 @@ private:
 		FileDescriptor spawnedStdin, spawnedStdoutAndErr;
 		BackgroundIOCapturerPtr stdoutAndErrCapturer;
 
-		if (fileExists(session->responseDir + "/stdin")) {
+		if (fileExists(session.responseDir + "/stdin")) {
 			spawnedStdin = openFifoWithTimeout(
-				session->responseDir + "/stdin",
-				&session.timeoutUsec);
+				session.responseDir + "/stdin",
+				session.timeoutUsec);
 			P_LOG_FILE_DESCRIPTOR_PURPOSE(spawnedStdin,
 				"App " << spawnedPid << " (" << options.appRoot
 				<< ") stdin");
 		}
 
-		if (fileExists(session->responseDir + "/stdout_and_err")) {
+		if (fileExists(session.responseDir + "/stdout_and_err")) {
 			spawnedStdoutAndErr = openFifoWithTimeout(
-				session->responseDir + "/stdout_and_err",
-				&session.timeoutUsec);
+				session.responseDir + "/stdout_and_err",
+				session.timeoutUsec);
 			P_LOG_FILE_DESCRIPTOR_PURPOSE(spawnedStdoutAndErr,
 				"App " << spawnedPid << " (" << options.appRoot
 				<< ") stdoutAndErr");
@@ -669,6 +618,7 @@ private:
 			session.journey.setStepErrored(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
 
 			SpawnException e(INTERNAL_ERROR, session.journey, session.config);
+			addPreloaderAnnotations(e);
 			e.setSummary("The process that the preloader said it spawned, PID "
 				+ toString(spawnedPid) + ", has UID " + toString(spawnedUid)
 				+ ", but the expected UID is " + toString(session.uid));
@@ -692,8 +642,7 @@ private:
 
 		stdoutAndErrCapturer->stop();
 		guard.clear();
-		return ForkResult(spawnedPid, spawnedStdin, spawnedStdoutAndErr,
-			getBackgroundIOCapturerData(stdoutAndErrCapturer));
+		return ForkResult(spawnedPid, spawnedStdin, spawnedStdoutAndErr);
 	}
 
 	ForkResult handleForkCommandResponseError(HandshakeSession &session,
@@ -702,6 +651,7 @@ private:
 		session.journey.setStepErrored(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
 
 		SpawnException e(INTERNAL_ERROR, session.journey, session.config);
+		addPreloaderAnnotations(e);
 		e.setSummary("An error occured while starting the web application: "
 			+ doc["message"].asString());
 		e.setProblemDescriptionHTML(
@@ -733,17 +683,18 @@ private:
 	uid_t getProcessUid(HandshakeSession &session, pid_t pid,
 		const BackgroundIOCapturerPtr &stdoutAndErrCapturer)
 	{
-		uid_t uid;
+		uid_t uid = (uid_t) -1;
 
 		try {
 			vector<pid_t> pids;
 			pids.push_back(pid);
-			ProcessMetricsMap result = ProcessMetricsCollector().collect(pids);
+			ProcessMetricMap result = ProcessMetricsCollector().collect(pids);
 			uid = result[pid].uid;
 		} catch (const ParseException &) {
 			session.journey.setStepErrored(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
 
 			SpawnException e(INTERNAL_ERROR, session.journey, session.config);
+			addPreloaderAnnotations(e);
 			e.setSummary("Unable to query the UID of spawned application process "
 				+ toString(pid) + ": error parsing 'ps' output");
 			e.setProblemDescriptionHTML(
@@ -757,13 +708,14 @@ private:
 			e.setSolutionDescriptionHTML(
 				createSolutionDescriptionForProcessMetricsCollectionError());
 			throw e.finalize();
-		} catch (const SystemException &e) {
+		} catch (const SystemException &originalException) {
 			session.journey.setStepErrored(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
 
 			SpawnException e(OPERATING_SYSTEM_ERROR, session.journey, session.config);
+			addPreloaderAnnotations(e);
 			e.setSummary("Unable to query the UID of spawned application process "
 				+ toString(pid) + "; error capturing 'ps' output: "
-				+ e.what());
+				+ originalException.what());
 			e.setProblemDescriptionHTML(
 				"<p>The " PROGRAM_NAME " application server tried"
 				" to start the web application. As part of the starting"
@@ -774,18 +726,19 @@ private:
 				" files. However, an error was encountered while doing"
 				" one of those things.</p>"
 				"<p>The error returned by the operating system is as follows:</p>"
-				"<pre>" + escapeHTML(e.what()) + "</pre>");
+				"<pre>" + escapeHTML(originalException.what()) + "</pre>");
 			e.setSolutionDescriptionHTML(
 				createSolutionDescriptionForProcessMetricsCollectionError());
 			throw e.finalize();
 		}
 
-		if (uid == -1) {
+		if (uid == (uid_t) -1) {
 			if (osProcessExists(pid)) {
 				session.journey.setStepErrored(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
 
 				SpawnException e(INTERNAL_ERROR, session.journey, session.config);
-				set.setSummary("Unable to query the UID of spawned application process "
+				addPreloaderAnnotations(e);
+				e.setSummary("Unable to query the UID of spawned application process "
 					+ toString(pid) + ": 'ps' did not report information"
 					" about this process");
 				e.setProblemDescriptionHTML(
@@ -802,7 +755,8 @@ private:
 			} else {
 				session.journey.setStepErrored(SPAWNING_KIT_PROCESS_RESPONSE_FROM_PRELOADER);
 
-				SpawnException e(INTERNAL_ERROR, session.config, session.journey);
+				SpawnException e(INTERNAL_ERROR, session.journey, session.config);
+				addPreloaderAnnotations(e);
 				e.setSummary("The application process spawned from the preloader"
 					" seems to have exited prematurely");
 				e.setStdoutAndErrData(getBackgroundIOCapturerData(stdoutAndErrCapturer));
@@ -879,7 +833,7 @@ private:
 
 		try {
 			UPDATE_TRACE_POINT();
-			if (thr.try_join_until(boost::posix_time::microseconds(timeout))) {
+			if (thr.try_join_for(boost::chrono::microseconds(timeout))) {
 				if (fd == -1) {
 					throw SystemException("Cannot open FIFO " + path, errcode);
 				} else {
@@ -897,7 +851,7 @@ private:
 			UPDATE_TRACE_POINT();
 			thr.interrupt_and_join();
 			throw;
-		} catch (const boost::system_error &e) {
+		} catch (const boost::system::system_error &e) {
 			throw SystemException(e.what(), e.code().value());
 		}
 	}
@@ -906,7 +860,7 @@ private:
 		FileDescriptor *fd, int *errcode)
 	{
 		TRACE_POINT();
-		*fd = syscalls::open(path.c_str(), O_RDONLY);
+		fd->assign(syscalls::open(path.c_str(), O_RDONLY), __FILE__, __LINE__);
 		*errcode = errno;
 	}
 
@@ -927,15 +881,22 @@ private:
 		closedir(dir);
 	}
 
-	static string findSocketAddress(const HandshakeSession &session) {
-		// TODO
+	static string findPreloaderCommandSocketAddress(const HandshakeSession &session) {
+		const vector<Result::Socket> &sockets = session.result.sockets;
+		vector<Result::Socket>::const_iterator it, end = sockets.end();
+		for (it = sockets.begin(); it != end; it++) {
+			if (it->protocol == "preloader") {
+				return it->address;
+			}
+		}
+		return string();
 	}
 
 	static StringKeyTable<string> loadAnnotationsFromEnvDumpDir(const string &envDumpDir) {
 		string path = envDumpDir + "/annotations";
 		DIR *dir = opendir(path.c_str());
 		if (dir == NULL) {
-			return;
+			return StringKeyTable<string>();
 		}
 
 		ScopeGuard guard(boost::bind(doClosedir, dir));
@@ -954,8 +915,12 @@ private:
 		return result;
 	}
 
-	static void addPreloaderAnnotations(const SpawnException &e) {
-
+	void addPreloaderAnnotations(SpawnException &e) const {
+		StringKeyTable<string>::ConstIterator it(preloaderAnnotations);
+		while (*it != NULL) {
+			e.setAnnotation(it.getKey(), it.getValue(), false);
+			it.next();
+		}
 	}
 
 public:
@@ -1007,7 +972,7 @@ public:
 		session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
 
 		try {
-			setConfigFromAppPoolOptions(config, extraArgs, options);
+			setConfigFromAppPoolOptions(&config, extraArgs, options);
 			HandshakePrepare(session, extraArgs).execute();
 
 			ForkResult forkResult = invokeForkCommand(session);
