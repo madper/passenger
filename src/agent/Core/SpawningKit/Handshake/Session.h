@@ -62,17 +62,17 @@ struct HandshakeSession {
 
 	/**
 	 * The port that the application is expected to start on. Only meaningful
-	 * if `config->genericApp` is false.
+	 * if `config->genericApp || config->findFreePort`.
 	 */
 	unsigned int expectedStartPort;
 
-	HandshakeSession(Context &context, Config &config, JourneyType journeyType)
-		: context(&context),
-		  config(&config),
-		  journey(journeyType, !config.genericApp && config.startsUsingWrapper),
+	HandshakeSession(Context &_context, Config &_config, JourneyType journeyType)
+		: context(&_context),
+		  config(&_config),
+		  journey(journeyType, !_config.genericApp && _config.startsUsingWrapper),
 		  uid(USER_NOT_GIVEN),
 		  gid(GROUP_NOT_GIVEN),
-		  timeoutUsec(0),
+		  timeoutUsec(_config.startTimeoutMsec * 1000),
 		  expectedStartPort(0)
 		{ }
 };

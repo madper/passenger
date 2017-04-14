@@ -26,6 +26,8 @@
 #ifndef _PASSENGER_SPAWNING_KIT_DIRECT_SPAWNER_H_
 #define _PASSENGER_SPAWNING_KIT_DIRECT_SPAWNER_H_
 
+#include <stdexcept>
+
 #include <Core/SpawningKit/Spawner.h>
 #include <Core/SpawningKit/Handshake/Prepare.h>
 #include <Core/SpawningKit/Handshake/Perform.h>
@@ -127,7 +129,6 @@ private:
 	{
 		TRACE_POINT();
 		Json::Value extraArgs;
-		Result result;
 
 		setConfigFromAppPoolOptions(&config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();
@@ -210,7 +211,7 @@ private:
 			session.journey.setStepPerformed(SPAWNING_KIT_HANDSHAKE_PERFORM);
 			P_DEBUG("Process spawning done: appRoot=" << options.appRoot <<
 				", pid=" << session.result.pid);
-			return result;
+			return session.result;
 		}
 	}
 
@@ -235,6 +236,7 @@ public:
 		} catch (const SpawnException &) {
 			throw;
 		} catch (const std::exception &originalException) {
+			session.journey.setStepErrored(SPAWNING_KIT_PREPARATION);
 			throw SpawnException(originalException, session.journey,
 				&config).finalize();
 		}

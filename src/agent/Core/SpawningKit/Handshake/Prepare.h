@@ -487,9 +487,6 @@ public:
 		// it may want to perform additional preparation.
 
 		try {
-			session.context = context;
-			session.config = config;
-			session.timeoutUsec = config->startTimeoutMsec * 1000;
 			timer.start();
 
 			resolveUserAndGroup();

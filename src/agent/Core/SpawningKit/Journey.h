@@ -265,9 +265,9 @@ public:
 		return UNKNOWN_JOURNEY_STEP;
 	}
 
-	void setStepNotStarted(JourneyStep step) {
+	void setStepNotStarted(JourneyStep step, bool force = false) {
 		JourneyStepInfo &info = getStepInfoMutable(step);
-		if (info.state == STEP_NOT_STARTED || info.state == STEP_IN_PROGRESS) {
+		if (info.state == STEP_NOT_STARTED || info.state == STEP_IN_PROGRESS || force) {
 			info.state = STEP_NOT_STARTED;
 			info.startTime = 0;
 		} else {

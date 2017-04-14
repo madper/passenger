@@ -41,6 +41,8 @@
 #include <sys/types.h>
 #include <dirent.h>
 
+#include <jsoncpp/json.h>
+
 #include <Constants.h>
 #include <Exceptions.h>
 #include <FileDescriptor.h>
@@ -272,34 +274,38 @@ private:
 		vector<StaticString> internalFieldErrors, appSuppliedFieldErrors;
 
 		result.pid = pid;
+		result.stdinFd = stdinFd;
 		result.stdoutAndErrFd = stdoutAndErrFd;
 		result.spawnEndTime = SystemTime::getUsec();
 		result.spawnEndTimeMonotonic = SystemTime::getMonotonicUsec();
-		try {
-			result.loadPropertiesFromResponseDir(session.responseDir);
-		} catch (const VariantMap::MissingKeyException &e) {
-			appSuppliedFieldErrors.push_back(e.what());
-			throwSpawnExceptionBecauseOfResultValidationErrors(internalFieldErrors,
-				appSuppliedFieldErrors);
-		} catch (const ConfigurationException &e) {
-			appSuppliedFieldErrors.push_back(e.what());
-			throwSpawnExceptionBecauseOfResultValidationErrors(internalFieldErrors,
-				appSuppliedFieldErrors);
+
+		if (socketIsNowPingable) {
+			assert(config->genericApp || config->findFreePort);
+			result.sockets.push_back(Result::Socket());
+			Result::Socket &socket = result.sockets.back();
+			socket.address = "tcp://127.0.0.1:" + toString(session.expectedStartPort);
+			socket.protocol = "http";
+			socket.concurrency = -1;
+			socket.acceptHttpRequests = true;
 		}
 
 		UPDATE_TRACE_POINT();
-		if (socketIsNowPingable) {
-			assert(config->genericApp || config->findFreePort);
-			Result::Socket socket;
-			socket.name = "main";
-			socket.address = "tcp://127.0.0.1:" + toString(session.expectedStartPort);
-			socket.protocol = "http_session";
-			socket.concurrency = -1; // unknown concurrency
-			result.sockets.push_back(socket);
-		} else if (result.sockets.empty()) {
-			throwSpawnExceptionBecauseAppDidNotProvideSockets();
+		if (fileExists(session.responseDir + "/properties.json")) {
+			loadResultPropertiesFromResponseDir(!socketIsNowPingable);
+
+			UPDATE_TRACE_POINT();
+			if (session.journey.getType() == START_PRELOADER
+				&& !resultHasSocketWithPreloaderProtocol())
+			{
+				throwSpawnExceptionBecauseAppDidNotProvidePreloaderProtocolSockets();
+			} else if (session.journey.getType() != START_PRELOADER
+				&& !resultHasSocketThatAcceptsHttpRequests())
+			{
+				throwSpawnExceptionBecauseAppDidNotProvideSocketsThatAcceptRequests();
+			}
 		}
 
+		UPDATE_TRACE_POINT();
 		if (result.validate(internalFieldErrors, appSuppliedFieldErrors)) {
 			return result;
 		} else {
@@ -339,6 +345,156 @@ private:
 		throw e.finalize();
 	}
 
+	void loadResultPropertiesFromResponseDir(bool socketsRequired) {
+		Result &result = session.result;
+		string path = session.responseDir + "/properties.json";
+		Json::Reader reader;
+		Json::Value doc;
+		vector<string> errors;
+
+		// We already checked whether properties.json exists before invoking
+		// this method, so if readAll() fails then we can't be sure that
+		// it's an application problem. This is why we want the SystemException
+		// to propagate to higher layers so that there it can be turned into
+		// a generic filesystem-related or IO-related SpawnException, as opposed
+		// to one about this problem specifically.
+
+		if (!reader.parse(readAll(path), doc)) {
+			errors.push_back("Error parsing " + path + ": " +
+				reader.getFormattedErrorMessages());
+			throwSpawnExceptionBecauseOfResultValidationErrors(vector<string>(),
+				errors);
+		}
+
+		validateResultPropertiesFile(doc, socketsRequired, errors);
+		if (!errors.empty()) {
+			errors.insert(errors.begin(), "The following errors were detected in "
+				+ path + ":");
+			throwSpawnExceptionBecauseOfResultValidationErrors(vector<string>(),
+				errors);
+		}
+
+		if (!socketsRequired && (!doc.isMember("sockets") || doc["sockets"].empty())) {
+			return;
+		}
+
+		Json::Value::iterator it, end = doc["sockets"].end();
+		for (it = doc["sockets"].begin(); it != end; it++) {
+			const Json::Value &socketDoc = *it;
+			result.sockets.push_back(Result::Socket());
+			Result::Socket &socket = result.sockets.back();
+
+			socket.address = socketDoc["address"].asString();
+			socket.protocol = socketDoc["protocol"].asString();
+			socket.concurrency = socketDoc["concurrency"].asInt();
+			if (socketDoc.isMember("accept_http_requests")) {
+				socket.acceptHttpRequests = socketDoc["accept_http_requests"].asBool();
+			}
+			if (socketDoc.isMember("description")) {
+				socket.description = socketDoc["description"].asString();
+			}
+		}
+	}
+
+	void validateResultPropertiesFile(const Json::Value &doc, bool socketsRequired,
+		vector<string> &errors) const
+	{
+		if (!doc.isMember("sockets")) {
+			if (socketsRequired) {
+				errors.push_back("'sockets' must be specified");
+			}
+		} else if (!doc["sockets"].isArray()) {
+			errors.push_back("'sockets' must be an array");
+		} else {
+			if (socketsRequired && doc["sockets"].empty()) {
+				errors.push_back("'sockets' must be non-empty");
+				return;
+			}
+
+			Json::Value::const_iterator it, end = doc["sockets"].end();
+			for (it = doc["sockets"].begin(); it != end; it++) {
+				const Json::Value &socketDoc = *it;
+
+				if (!socketDoc.isObject()) {
+					errors.push_back("'sockets[" + toString(it.index())
+						+ "]' must be an object");
+					continue;
+				}
+
+				validateResultPropertiesFileSocketField(socketDoc,
+					"address", Json::stringValue, it.index(),
+					true, true, errors);
+				validateResultPropertiesFileSocketField(socketDoc,
+					"protocol", Json::stringValue, it.index(),
+					true, true, errors);
+				validateResultPropertiesFileSocketField(socketDoc,
+					"description", Json::stringValue, it.index(),
+					false, true, errors);
+				validateResultPropertiesFileSocketField(socketDoc,
+					"concurrency", Json::intValue, it.index(),
+					true, false, errors);
+				validateResultPropertiesFileSocketField(socketDoc,
+					"accept_http_requests", Json::booleanValue, it.index(),
+					false, false, errors);
+			}
+		}
+	}
+
+	void validateResultPropertiesFileSocketField(const Json::Value &doc,
+		const char *key, Json::ValueType type, unsigned int index, bool required,
+		bool requireNonEmpty, vector<string> &errors) const
+	{
+		if (!doc.isMember(key)) {
+			if (required) {
+				errors.push_back("'sockets[" + toString(index)
+					+ "]." + key + "' must be specified");
+			}
+		} else if (doc[key].type() != type) {
+			const char *typeDesc;
+			switch (type) {
+			case Json::stringValue:
+				typeDesc = "a string";
+				break;
+			case Json::intValue:
+				typeDesc = "an integer";
+				break;
+			case Json::booleanValue:
+				typeDesc = "a boolean";
+				break;
+			default:
+				typeDesc = "(unknown type)";
+				break;
+			}
+			errors.push_back("'sockets[" + toString(index)
+				+ "]." + key + "' must be " + typeDesc);
+		} else if (requireNonEmpty && doc[key].asString().empty()) {
+			errors.push_back("'sockets[" + toString(index)
+				+ "]." + key + "' must be non-empty");
+		}
+	}
+
+	bool resultHasSocketWithPreloaderProtocol() const {
+		const vector<Result::Socket> &sockets = session.result.sockets;
+		vector<Result::Socket>::const_iterator it, end = sockets.end();
+		for (it = sockets.begin(); it != end; it++) {
+			if (it->protocol == "preloader") {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool resultHasSocketThatAcceptsHttpRequests() const {
+		const vector<Result::Socket> &sockets = session.result.sockets;
+		vector<Result::Socket>::const_iterator it, end = sockets.end();
+		for (it = sockets.begin(); it != end; it++) {
+			if (it->acceptHttpRequests) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	void wakeupEventLoop() {
 		cond.notify_all();
 	}
@@ -355,7 +511,7 @@ private:
 		syscalls::usleep(50000);
 	}
 
-	void throwSpawnExceptionBecauseAppDidNotProvideSockets() {
+	void throwSpawnExceptionBecauseAppDidNotProvidePreloaderProtocolSockets() {
 		assert(!config->genericApp);
 
 		sleepShortlyToCaptureMoreStdoutStderr();
@@ -364,22 +520,19 @@ private:
 			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
 			loadJourneyStateFromResponseDir();
 
-			SpawnException e(
-				INTERNAL_ERROR,
-				session.journey,
-				config);
+			SpawnException e(INTERNAL_ERROR, session.journey, config);
 			e.setStdoutAndErrData(getStdoutErrData());
 			loadAnnotationsFromEnvDumpDir(e);
 
 			if (config->wrapperSuppliedByThirdParty) {
 				e.setSummary("Error spawning the web application:"
 					" a third-party application wrapper did not"
-					" report any sockets to receive requests on.");
+					" report any sockets to receive preloader commands on.");
 			} else {
 				e.setSummary("Error spawning the web application:"
 					" a " SHORT_PROGRAM_NAME "-internal application"
 					" wrapper did not report any sockets to receive"
-					" requests on.");
+					" preloader commands on.");
 			}
 
 			if (config->wrapperSuppliedByThirdParty) {
@@ -388,9 +541,9 @@ private:
 					" to start the web application through a helper tool "
 					" called the \"wrapper\". This helper tool is not part of "
 					SHORT_PROGRAM_NAME ". " SHORT_PROGRAM_NAME " expected"
-					" the helper tool to report a socket to receive requests"
-					" on, but the helper tool finished its startup sequence"
-					" without reporting a socket.</p>");
+					" the helper tool to report a socket to receive preloader"
+					" commands on, but the helper tool finished its startup"
+					" sequence without reporting such a socket.</p>");
 			} else {
 				e.setProblemDescriptionHTML(
 					"<p>The " PROGRAM_NAME " application server tried"
@@ -398,9 +551,9 @@ private:
 					"-internal helper tool called the \"wrapper\", "
 					" but " SHORT_PROGRAM_NAME " encountered a bug"
 					" in this helper tool. " SHORT_PROGRAM_NAME " expected"
-					" the helper tool to report a socket to receive requests"
-					" on, but the helper tool finished its startup sequence"
-					" without reporting a socket.</p>");
+					" the helper tool to report a socket to receive preloader"
+					" commands on, but the helper tool finished its startup"
+					" sequence without reporting such a socket.</p>");
 			}
 
 			if (config->wrapperSuppliedByThirdParty) {
@@ -426,22 +579,19 @@ private:
 			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC);
 			loadJourneyStateFromResponseDir();
 
-			SpawnException e(
-				INTERNAL_ERROR,
-				session.journey,
-				config);
+			SpawnException e(INTERNAL_ERROR, session.journey, config);
 			e.setStdoutAndErrData(getStdoutErrData());
 			loadAnnotationsFromEnvDumpDir(e);
 
 			e.setSummary("Error spawning the web application: the application"
-				" did not report any sockets to receive requests on.");
+				" did not report any sockets to receive preloader commands on.");
 			e.setProblemDescriptionHTML(
 				"<p>The " PROGRAM_NAME " application server tried"
 				" to start the web application, but encountered a bug"
 				" in the application. " SHORT_PROGRAM_NAME " expected"
-				" the application to report a socket to receive requests"
-				" on, but the application finished its startup sequence"
-				" without reporting a socket.</p>");
+				" the application to report a socket to receive preloader"
+				" commands on, but the application finished its startup"
+				" sequence without reporting such a socket.</p>");
 			e.setSolutionDescriptionHTML(
 				"<p class=\"sole-solution\">"
 				"Since this is a bug in the web application, please "
@@ -453,12 +603,105 @@ private:
 		}
 	}
 
+	void throwSpawnExceptionBecauseAppDidNotProvideSocketsThatAcceptRequests() {
+		assert(!config->genericApp);
+
+		sleepShortlyToCaptureMoreStdoutStderr();
+
+		if (!config->genericApp && config->startsUsingWrapper) {
+			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
+			loadJourneyStateFromResponseDir();
+
+			SpawnException e(INTERNAL_ERROR, session.journey, config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadAnnotationsFromEnvDumpDir(e);
+
+			if (config->wrapperSuppliedByThirdParty) {
+				e.setSummary("Error spawning the web application:"
+					" a third-party application wrapper did not"
+					" report any sockets to receive requests on.");
+			} else {
+				e.setSummary("Error spawning the web application:"
+					" a " SHORT_PROGRAM_NAME "-internal application"
+					" wrapper did not report any sockets to receive"
+					" requests on.");
+			}
+
+			if (config->wrapperSuppliedByThirdParty) {
+				e.setProblemDescriptionHTML(
+					"<p>The " PROGRAM_NAME " application server tried"
+					" to start the web application through a helper tool "
+					" called the \"wrapper\". This helper tool is not part of "
+					SHORT_PROGRAM_NAME ". " SHORT_PROGRAM_NAME " expected"
+					" the helper tool to report a socket to receive requests"
+					" on, but the helper tool finished its startup sequence"
+					" without reporting such a socket.</p>");
+			} else {
+				e.setProblemDescriptionHTML(
+					"<p>The " PROGRAM_NAME " application server tried"
+					" to start the web application through a " SHORT_PROGRAM_NAME
+					"-internal helper tool called the \"wrapper\", "
+					" but " SHORT_PROGRAM_NAME " encountered a bug"
+					" in this helper tool. " SHORT_PROGRAM_NAME " expected"
+					" the helper tool to report a socket to receive requests"
+					" on, but the helper tool finished its startup sequence"
+					" without reporting such a socket.</p>");
+			}
+
+			if (config->wrapperSuppliedByThirdParty) {
+				e.setSolutionDescriptionHTML(
+					"<p class=\"sole-solution\">"
+					"This is a bug in the wrapper, so please contact the author of"
+					" the wrapper. This problem is outside " SHORT_PROGRAM_NAME
+					"'s control. Below follows the command that "
+					SHORT_PROGRAM_NAME " tried to execute, so that you can infer"
+					" which wrapper was used:</p>"
+					"<pre>" + escapeHTML(config->startCommand) + "</pre>");
+			} else {
+				e.setSolutionDescriptionHTML(
+					"<p class=\"sole-solution\">"
+					"This is a bug in " SHORT_PROGRAM_NAME "."
+					" <a href=\"" SUPPORT_URL "\">Please report this bug</a>"
+					" to the " SHORT_PROGRAM_NAME " authors.</p>");
+			}
+
+			throw e.finalize();
+
+		} else {
+			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC);
+			loadJourneyStateFromResponseDir();
+
+			SpawnException e(INTERNAL_ERROR, session.journey, config);
+			e.setStdoutAndErrData(getStdoutErrData());
+			loadAnnotationsFromEnvDumpDir(e);
+
+			e.setSummary("Error spawning the web application: the application"
+				" did not report any sockets to receive requests on.");
+			e.setProblemDescriptionHTML(
+				"<p>The " PROGRAM_NAME " application server tried"
+				" to start the web application, but encountered a bug"
+				" in the application. " SHORT_PROGRAM_NAME " expected"
+				" the application to report a socket to receive requests"
+				" on, but the application finished its startup sequence"
+				" without reporting such a socket.</p>");
+			e.setSolutionDescriptionHTML(
+				"<p class=\"sole-solution\">"
+				"Since this is a bug in the web application, please "
+				"report this problem to the application's developer. "
+				"This problem is outside " SHORT_PROGRAM_NAME "'s "
+				"control.</p>");
+
+			throw e.finalize();
+		}
+	}
+
+	template<typename StringType>
 	void throwSpawnExceptionBecauseOfResultValidationErrors(
-		const vector<StaticString> &internalFieldErrors,
-		const vector<StaticString> &appSuppliedFieldErrors)
+		const vector<StringType> &internalFieldErrors,
+		const vector<StringType> &appSuppliedFieldErrors)
 	{
 		string message;
-		vector<StaticString>::const_iterator it, end;
+		typename vector<StringType>::const_iterator it, end;
 
 		sleepShortlyToCaptureMoreStdoutStderr();
 

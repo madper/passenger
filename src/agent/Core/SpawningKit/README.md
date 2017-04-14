@@ -218,6 +218,9 @@ Work directory
   |     |
   |     +-- properties.json
   |     |
+  |     +-- stdin
+  |     +-- stdout_and_err
+  |     |
   |     +-- error/      [P]
   |     |     |
   |     |     +-- category
@@ -279,10 +282,41 @@ There are two entries representing the spawn arguments:
 The `response/` directory represents the response:
 
  * `finish` is a FIFO file. If a wrapper is used, or if the application has explicit support for SpawningKit, then either of them can write to this FIFO file to indicate that it has done spawning. See "Mechanism for waiting until the application is up" for more information.
+ * If the application has explicit support for SpawningKit, then it may create a `properties.json` in order to communicate back to SpawningKit information about the spawned application process. For example, if the application process started listening on a random port, then this file can be used to tell SpawningKit which port the process is listening on. See "Application response properties" for more information.
+ * `stdin` and `stdout_and_err` are FIFO files. They are only created (by the preloader) when using a preloader to spawn a new worker process. These FIFOs refer to the spawned worker process's stdin, stdout and stderr.
  * If the subprocess fails, then it can communicate back specific error messages through the `error/` directory. See "Error reporting" for more information.
  * The subprocess must regularly update the contents of the `steps/` directory to allow SpawningKit to know which step in the journey the subprocess is executing, and what the state and duration of each step is. See "Subprocess journey logging" for more information.
 
 The subprocess should dump information about its environment into the `envdump/` directory. Information includes environment variables (`envvars`), ulimits (`ulimits`), UID/GID (`user_info`), but also anything else that the subprocess deems relevant (`annotations/`). If spawning fails, then the information reported in this directory will be included in the error report (see "Error reporting").
+
+## Application response properties
+
+If the application has explicit support for SpawningKit, then it may create a `properties.json` inside the `response/` subdirectory of the work directory, in order to communicate back to SpawningKit information about the spawned application process. For example, if the application process started listening on a random port, then this file can be used to tell SpawningKit which port the process is listening on.
+
+`properties.json` may only contain the following keys:
+
+ * `sockets` -- an array objects describing the sockets on which the application listens for requests. The format is as follows. All fields are required unless otherwise specified.
+
+       [
+           {
+               "address": "tcp://127.0.0.1:1234" | "unix:/path-to-unix-socket",
+               "protocol": "http" | "session" | "preloader" | "arbitrary-other-value",
+               "concurrency": <integer>,
+               "accept_http_requests": true | false,         // optional; default: false
+               "description": "description of this socket"   // optional
+           },
+           ...
+       ]
+
+    The `address` field describes the address of the socket, which is either a TCP address or a Unix domain socket path. In case of the latter, the Unix domain socket **must** have the same file owner as the application process.
+
+    The `protocol` field describes the protocol that this socket speaks. The value "http" is obvious; the value "session" refers to an internal SCGI-ish protocol that the Ruby and Python wrappers speak with Passenger. The value "preloader" means that this socket is used for receiving preloader commands (only preloaders are supposed to report such sockets; see "The preloader protocol"). Other arbitrary values are also allowed.
+
+    The `concurrency` field describes how many concurrent requests this socket can handle. The special value 0 means unlimited.
+
+    If the spawned process is a worker process (i.e. not a preloader process) then there must be at least one socket for which `accept_http_requests` is set to true. This field tells Passenger that HTTP traffic may be forwarded to this particular socket. You may wonder: why does this exist? Isn't it already enough if the application reports at least one socket that speaks the "http" protocol? The answer is no: whether Passenger should forward HTTP traffic to a specific socket has got nothing to do with whether that socket speaks HTTP. For example Passenger forwards HTTP traffic to the Ruby and Python wrappers using the "session" protocol. Furthermore, the Ruby wrapper spawns an HTTP socket, but it's for debugging purposes only and is slow, and so it should not be used for receiving live HTTP traffic. Note that a socket with `accept_http_requests` set to true **must** speak either the "http" or the "session" protocol. Other protocols are not allowed.
+
+    The `description` field may be used in the future to display additional information about an application process, for example inside admin tools, but currently it is not used.
 
 ## The preloader protocol
 
@@ -304,6 +338,8 @@ The preloader then forks a child process, and (before the next step in the journ
 The worker process's stdin, stdout and stderr are stored in FIFO files inside the work directory. SpawningKit then opens these FIFOs and proceeds with handshaking with the worker process.
 
 ## Subprocess journey logging
+
+TODO
 
 ## Error reporting
 
@@ -340,3 +376,5 @@ If one doesn't supply a problem description, but does supply advanced problem de
 Inside the SpawningKit codebase, an error report is generated by creating a SpawnException object. Subprocesses such as the preloader, the SpawnEnvSetupper, the wrapper and the app, can aid in generating the error report by providing their own details through the `error/` and `envdump/` subdirectories inside the work directory. In particular: subprocesses can provide the problem description and the solution description in one of two formats: either plain-text or HTML. So e.g. only one of `problem_description.txt` or `problem_description.html` need to exist, not both.
 
 ## Mechanism for waiting until the application is up
+
+TODO
