@@ -216,7 +216,7 @@ private:
 					session.envDumpDir);
 			}
 
-			PipeWatcherPtr watcher = boost::make_shared<PipeWatcher>(context,
+			PipeWatcherPtr watcher = boost::make_shared<PipeWatcher>(
 				stdoutAndErrChannel.first, "output", pid);
 			watcher->initialize();
 			watcher->start();

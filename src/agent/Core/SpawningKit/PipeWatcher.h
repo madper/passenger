@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2012-2015 Phusion Holding B.V.
+ *  Copyright (c) 2012-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -43,7 +43,6 @@
 #include <Logging.h>
 #include <Utils.h>
 #include <Utils/StrIntUtils.h>
-#include <Core/SpawningKit/Config.h>
 
 namespace Passenger {
 namespace SpawningKit {
@@ -54,7 +53,6 @@ using namespace boost;
 /** A PipeWatcher lives until the file descriptor is closed. */
 class PipeWatcher: public boost::enable_shared_from_this<PipeWatcher> {
 private:
-	ConfigPtr config;
 	FileDescriptor fd;
 	const char *name;
 	pid_t pid;
@@ -110,18 +108,13 @@ private:
 					printAppOutput(pid, name, line.data(), line.size());
 				}
 			}
-
-			if (config->outputHandler) {
-				config->outputHandler(buf, ret);
-			}
 		}
 	}
 
 public:
-	PipeWatcher(const ConfigPtr &_config, const FileDescriptor &_fd,
+	PipeWatcher(const FileDescriptor &_fd,
 		const char *_name, pid_t _pid)
-		: config(_config),
-		  fd(_fd),
+		: fd(_fd),
 		  name(_name),
 		  pid(_pid),
 		  started(false)
