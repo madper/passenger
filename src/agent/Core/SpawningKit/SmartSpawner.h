@@ -35,6 +35,10 @@
 #include <map>
 #include <stdexcept>
 #include <dirent.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <cstdio>
+#include <cstring>
 #include <cassert>
 
 #include <adhoc_lve.h>
@@ -80,16 +84,63 @@ private:
 	string socketAddress;
 	unsigned long long m_lastUsed;
 
-	string getPreloaderCommandString() const {
-		string result;
-		unsigned int i;
 
-		for (i = 0; i < preloaderCommand.size(); i++) {
-			if (i != 0) {
-				result.append(1, '\0');
+	/**
+	 * Behaves like <tt>waitpid(pid, status, WNOHANG)</tt>, but waits at most
+	 * <em>timeout</em> miliseconds for the process to exit.
+	 */
+	static int timedWaitpid(pid_t pid, int *status, unsigned long long timeout) {
+		Timer<SystemTime::GRAN_10MSEC> timer;
+		int ret;
+
+		do {
+			ret = syscalls::waitpid(pid, status, WNOHANG);
+			if (ret > 0 || ret == -1) {
+				return ret;
+			} else {
+				syscalls::usleep(10000);
 			}
-			result.append(preloaderCommand[i]);
+		} while (timer.elapsed() < timeout);
+		return 0; // timed out
+	}
+
+	static bool osProcessExists(pid_t pid) {
+		if (syscalls::kill(pid, 0) == 0) {
+			/* On some environments, e.g. Heroku, the init process does
+			 * not properly reap adopted zombie processes, which can interfere
+			 * with our process existance check. To work around this, we
+			 * explicitly check whether or not the process has become a zombie.
+			 */
+			return !isZombie(pid);
+		} else {
+			return errno != ESRCH;
 		}
+	}
+
+	static bool isZombie(pid_t pid) {
+		string filename = "/proc/" + toString(pid) + "/status";
+		FILE *f = fopen(filename.c_str(), "r");
+		if (f == NULL) {
+			// Don't know.
+			return false;
+		}
+
+		bool result = false;
+		while (!feof(f)) {
+			char buf[512];
+			const char *line;
+
+			line = fgets(buf, sizeof(buf), f);
+			if (line == NULL) {
+				break;
+			}
+			if (strcmp(line, "State:	Z (zombie)\n") == 0) {
+				// Is a zombie.
+				result = true;
+				break;
+			}
+		}
+		fclose(f);
 		return result;
 	}
 
