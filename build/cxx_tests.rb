@@ -44,6 +44,8 @@ TEST_CXX_OBJECTS = {
 
   "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/ConfigTest.o" =>
     "test/cxx/Core/SpawningKit/ConfigTest.cpp",
+  "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/JourneyTest.o" =>
+    "test/cxx/Core/SpawningKit/JourneyTest.cpp",
 
   # "#{TEST_OUTPUT_DIR}cxx/Core/UnionStationTest.o" =>
   #   "test/cxx/Core/UnionStationTest.cpp",
