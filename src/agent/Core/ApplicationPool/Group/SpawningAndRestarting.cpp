@@ -96,13 +96,13 @@ Group::spawnThreadRealMain(const SpawningKit::SpawnerPtr &spawner,
 			boost::this_thread::restore_interruption ri(di);
 			boost::this_thread::restore_syscall_interruption rsi(dsi);
 			if (shouldFail) {
-				SpawnException e("Simulated failure");
+				SpawningKit::SpawnException e("Simulated failure");
 				processAndLogNewSpawnException(e, options, pool->getSpawningKitConfig());
 				throw e;
 			} else {
 				process = createProcessObject(spawner->spawn(options));
 			}
-		} catch (const thread_interrupted &) {
+		} catch (const boost::thread_interrupted &) {
 			break;
 		} catch (const tracable_exception &e) {
 			exception = copyException(e);

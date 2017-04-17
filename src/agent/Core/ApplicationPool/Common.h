@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2016 Phusion Holding B.V.
+ *  Copyright (c) 2011-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -206,7 +206,7 @@ struct Ticket {
 
 ExceptionPtr copyException(const tracable_exception &e);
 void rethrowException(const ExceptionPtr &e);
-void processAndLogNewSpawnException(SpawnException &e, const Options &options,
+void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Options &options,
 	const SpawningKit::ConfigPtr &config);
 void recreateString(psg_pool_t *pool, StaticString &str);
 

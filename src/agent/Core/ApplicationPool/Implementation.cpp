@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2015 Phusion Holding B.V.
+ *  Copyright (c) 2011-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -94,7 +94,7 @@ copyException(const tracable_exception &e) {
 
 	TRY_COPY_EXCEPTION(RequestQueueFullException);
 	TRY_COPY_EXCEPTION(GetAbortedException);
-	TRY_COPY_EXCEPTION(SpawnException);
+	TRY_COPY_EXCEPTION(SpawningKit::SpawnException);
 
 	TRY_COPY_EXCEPTION(InvalidModeStringException);
 	TRY_COPY_EXCEPTION(ArgumentException);
@@ -134,7 +134,7 @@ rethrowException(const ExceptionPtr &e) {
 
 	TRY_RETHROW_EXCEPTION(ConfigurationException);
 
-	TRY_RETHROW_EXCEPTION(SpawnException);
+	TRY_RETHROW_EXCEPTION(SpawningKit::SpawnException);
 	TRY_RETHROW_EXCEPTION(RequestQueueFullException);
 	TRY_RETHROW_EXCEPTION(GetAbortedException);
 
@@ -164,7 +164,7 @@ rethrowException(const ExceptionPtr &e) {
 	throw tracable_exception(*e);
 }
 
-void processAndLogNewSpawnException(SpawnException &e, const Options &options,
+void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Options &options,
 	const SpawningKit::ConfigPtr &config)
 {
 	TRACE_POINT();
