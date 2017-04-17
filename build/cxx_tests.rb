@@ -42,6 +42,9 @@ TEST_CXX_OBJECTS = {
   # "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/SmartSpawnerTest.o" =>
   #   "test/cxx/Core/SpawningKit/SmartSpawnerTest.cpp",
 
+  "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/ConfigTest.o" =>
+    "test/cxx/Core/SpawningKit/ConfigTest.cpp",
+
   # "#{TEST_OUTPUT_DIR}cxx/Core/UnionStationTest.o" =>
   #   "test/cxx/Core/UnionStationTest.cpp",
   # "#{TEST_OUTPUT_DIR}cxx/Core/ResponseCacheTest.o" =>
