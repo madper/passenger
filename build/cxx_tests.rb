@@ -31,25 +31,25 @@ TEST_CXX_OBJECTS = {
   "#{TEST_OUTPUT_DIR}cxx/TestSupport.o" =>
     "test/cxx/TestSupport.cpp",
 
-  "#{TEST_OUTPUT_DIR}cxx/Core/ApplicationPool/OptionsTest.o" =>
-    "test/cxx/Core/ApplicationPool/OptionsTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/ApplicationPool/ProcessTest.o" =>
-    "test/cxx/Core/ApplicationPool/ProcessTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/ApplicationPool/PoolTest.o" =>
-    "test/cxx/Core/ApplicationPool/PoolTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/DirectSpawnerTest.o" =>
-    "test/cxx/Core/SpawningKit/DirectSpawnerTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/SmartSpawnerTest.o" =>
-    "test/cxx/Core/SpawningKit/SmartSpawnerTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/ApplicationPool/OptionsTest.o" =>
+  #   "test/cxx/Core/ApplicationPool/OptionsTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/ApplicationPool/ProcessTest.o" =>
+  #   "test/cxx/Core/ApplicationPool/ProcessTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/ApplicationPool/PoolTest.o" =>
+  #   "test/cxx/Core/ApplicationPool/PoolTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/DirectSpawnerTest.o" =>
+  #   "test/cxx/Core/SpawningKit/DirectSpawnerTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/SpawningKit/SmartSpawnerTest.o" =>
+  #   "test/cxx/Core/SpawningKit/SmartSpawnerTest.cpp",
 
-  "#{TEST_OUTPUT_DIR}cxx/Core/UnionStationTest.o" =>
-    "test/cxx/Core/UnionStationTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/ResponseCacheTest.o" =>
-    "test/cxx/Core/ResponseCacheTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/SecurityUpdateCheckerTest.o" =>
-      "test/cxx/Core/SecurityUpdateCheckerTest.cpp",
-  "#{TEST_OUTPUT_DIR}cxx/Core/ControllerTest.o" =>
-    "test/cxx/Core/ControllerTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/UnionStationTest.o" =>
+  #   "test/cxx/Core/UnionStationTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/ResponseCacheTest.o" =>
+  #   "test/cxx/Core/ResponseCacheTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/SecurityUpdateCheckerTest.o" =>
+  #     "test/cxx/Core/SecurityUpdateCheckerTest.cpp",
+  # "#{TEST_OUTPUT_DIR}cxx/Core/ControllerTest.o" =>
+  #   "test/cxx/Core/ControllerTest.cpp",
 
   "#{TEST_OUTPUT_DIR}cxx/UstRouter/TransactionTest.o" =>
     "test/cxx/UstRouter/TransactionTest.cpp",
@@ -189,12 +189,12 @@ dependencies = [
   LIBUV_TARGET,
   TEST_BOOST_OXT_LIBRARY,
   TEST_COMMON_LIBRARY.link_objects,
-  AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT]
+  #AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT]
 ].flatten.compact
 file(TEST_CXX_TARGET => dependencies) do
   create_cxx_executable(
     TEST_CXX_TARGET,
-    TEST_CXX_OBJECTS.keys + AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT],
+    TEST_CXX_OBJECTS.keys + ['buildout/support-binaries/AgentBase.o'], #+ AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT],
     :flags => test_cxx_ldflags
   )
 end
@@ -203,7 +203,7 @@ dependencies = [
   TEST_CXX_TARGET,
   "#{TEST_OUTPUT_DIR}allocate_memory",
   NATIVE_SUPPORT_TARGET,
-  AGENT_TARGET
+  #AGENT_TARGET
 ].compact
 desc "Run unit tests for the C++ components"
 task 'test:cxx' => dependencies do
