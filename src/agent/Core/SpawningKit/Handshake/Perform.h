@@ -1306,7 +1306,11 @@ public:
 		  finishState(NOT_FINISHED),
 		  socketPingabilityWatcher(NULL),
 		  socketIsNowPingable(false)
-		{ }
+	{
+		assert(_session.context != NULL);
+		assert(_session.context->isFinalized());
+		assert(_session.config != NULL);
+	}
 
 	Result execute() {
 		TRACE_POINT();

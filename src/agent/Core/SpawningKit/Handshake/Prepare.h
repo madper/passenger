@@ -112,6 +112,8 @@ private:
 			throw RuntimeException("The operating system user '" + username + "' does not exist");
 		} else {
 			session.uid = userInfo->pw_uid;
+			session.shell = userInfo->pw_shell;
+			session.homedir = userInfo->pw_dir;
 		}
 
 		ret = getgrnam_r(groupname.c_str(), &grp, grpBuf.get(), grpBufSize,
@@ -465,15 +467,25 @@ private:
 	}
 
 public:
+	struct DebugSupport {
+		virtual ~DebugSupport() { }
+		virtual void beforeAdjustTimeout() { }
+	};
+
+	DebugSupport *debugSupport;
+
+
 	HandshakePrepare(HandshakeSession &_session,
 		const Json::Value &extraArgs = Json::Value())
 		: session(_session),
 		  context(_session.context),
 		  config(_session.config),
 		  args(extraArgs),
-		  timer(false)
+		  timer(false),
+		  debugSupport(NULL)
 	{
 		assert(_session.context != NULL);
+		assert(_session.context->isFinalized());
 		assert(_session.config != NULL);
 	}
 
@@ -501,6 +513,10 @@ public:
 			preparePredefinedArgs();
 			prepareArgsFromAppConfig();
 			dumpArgsIntoWorkDir();
+
+			if (debugSupport != NULL) {
+				debugSupport->beforeAdjustTimeout();
+			}
 
 			adjustTimeout();
 		} catch (const SpawnException &) {

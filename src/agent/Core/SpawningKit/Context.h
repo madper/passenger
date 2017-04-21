@@ -38,6 +38,7 @@
 #include <Exceptions.h>
 #include <Utils/JsonUtils.h>
 #include <Utils/VariantMap.h>
+#include <ConfigKit/Store.h>
 #include <Core/UnionStation/Context.h>
 
 namespace Passenger {
@@ -58,6 +59,36 @@ typedef Passenger::ApplicationPool2::Options AppPoolOptions;
 
 
 class Context {
+public:
+	class Schema: public ConfigKit::Schema {
+	private:
+		static void validate(const ConfigKit::Store &config, vector<ConfigKit::Error> &errors) {
+			if (config["min_port_range"].asUInt() > config["max_port_range"].asUInt()) {
+				errors.push_back(ConfigKit::Error(
+					"'{{min_port_range}}' must be equal to or smaller than {{max_port_range}}"));
+			}
+			if (config["min_port_range"].asUInt() > 65535) {
+				errors.push_back(ConfigKit::Error(
+					"{{min_port_range}} must be equal to or less than 65535"));
+			}
+			if (config["max_port_range"].asUInt() > 65535) {
+				errors.push_back(ConfigKit::Error(
+					"{{max_port_range}} must be equal to or less than 65535"));
+			}
+		}
+
+	public:
+		Schema() {
+			using namespace ConfigKit;
+
+			add("min_port_range", UINT_TYPE, OPTIONAL, 5000);
+			add("max_port_range", UINT_TYPE, OPTIONAL, 65535);
+
+			addValidator(validate);
+			finalize();
+		}
+	};
+
 private:
 	friend class HandshakePrepare;
 
@@ -66,6 +97,11 @@ private:
 
 
 	/****** Context-global configuration ******/
+
+	// Actual configuration store.
+	ConfigKit::Store config;
+
+	// Below follows cached values.
 
 	// Used by DummySpawner and SpawnerFactory.
 	//unsigned int concurrency;
@@ -78,11 +114,13 @@ private:
 
 	/****** Working state ******/
 
+	bool finalized;
 	unsigned int nextPort;
 
 
-	void finalizeConfig() {
-		maxPortRange = std::max(minPortRange, maxPortRange);
+	void updateConfigCache() {
+		minPortRange = config["min_port_range"].asUInt();
+		maxPortRange = config["max_port_range"].asUInt();
 		nextPort = std::max(std::min(nextPort, maxPortRange), minPortRange);
 	}
 
@@ -96,36 +134,46 @@ public:
 	//UnionStation::ContextPtr unionStationContext;
 
 
-	Context()
-		: //concurrency(1),
+	Context(const Schema &schema, const Json::Value &initialConfig = Json::Value())
+		: config(schema),
+		  //concurrency(1),
 		  //spawnerCreationSleepTime(0),
 		  //spawnTime(0),
-		  minPortRange(5000),
-		  maxPortRange(65535),
 
+		  finalized(false),
 		  nextPort(0),
 
 		  resourceLocator(NULL)
-		{ }
+	{
+		vector<ConfigKit::Error> errors;
 
-	void loadConfigFromJson(const Json::Value &doc, const string &prefix = string()) {
-		TRACE_POINT();
-		boost::lock_guard<boost::mutex> l(syncher);
-
-		getJsonUintField(doc, prefix + "min_port_range", &minPortRange);
-		getJsonUintField(doc, prefix + "max_port_range", &maxPortRange);
-
-		finalizeConfig();
+        if (!config.update(initialConfig, errors)) {
+            throw ArgumentException("Invalid initial configuration: "
+                + toString(errors));
+        }
+        updateConfigCache();
 	}
 
-	Json::Value getConfigAsJson(const string &prefix = string()) const {
+	Json::Value previewConfigUpdate(const Json::Value &updates,
+		vector<ConfigKit::Error> &errors)
+	{
 		boost::lock_guard<boost::mutex> l(syncher);
-		Json::Value doc;
+		return config.previewUpdate(updates, errors);
+	}
 
-		doc[prefix + "min_port_range"] = minPortRange;
-		doc[prefix + "max_port_range"] = maxPortRange;
+	bool configure(const Json::Value &updates, vector<ConfigKit::Error> &errors) {
+		boost::lock_guard<boost::mutex> l(syncher);
+		if (config.update(updates, errors)) {
+			updateConfigCache();
+			return true;
+		} else {
+			return false;
+		}
+	}
 
-		return doc;
+	Json::Value inspectConfig() const {
+		boost::lock_guard<boost::mutex> l(syncher);
+		return config.inspect();
 	}
 
 	void finalize() {
@@ -139,7 +187,12 @@ public:
 		if (integrationMode.empty()) {
 			throw RuntimeException("integrationMode not set");
 		}
-		finalizeConfig();
+
+		finalized = true;
+	}
+
+	bool isFinalized() const {
+		return finalized;
 	}
 };
 
