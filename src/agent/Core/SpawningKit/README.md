@@ -237,7 +237,7 @@ Work directory
   |     |
   |     +-- steps/      [P]
   |           |
-  |           +-- spawn_env_setupper_before_shell/  [P]
+  |           +-- subprocess_spawn_env_setupper_before_shell/  [P]
   |           |     |
   |           |     +-- state
   |           |     |

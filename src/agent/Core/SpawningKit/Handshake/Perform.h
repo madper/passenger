@@ -139,7 +139,7 @@ private:
 	void watchFinishSignal() {
 		TRACE_POINT();
 		try {
-			string path = session.workDir->getPath() + "/finish";
+			string path = session.responseDir + "/finish";
 			int fd = syscalls::open(path.c_str(), O_RDONLY);
 			if (fd == -1) {
 				int e = errno;
@@ -225,10 +225,15 @@ private:
 		{
 			sleepShortlyToCaptureMoreStdoutStderr();
 			loadJourneyStateFromResponseDir();
+			if (session.journey.getFirstFailedStep() == UNKNOWN_JOURNEY_STEP) {
+				session.journey.setStepErrored(SUBPROCESS_BEFORE_FIRST_EXEC, true);
+			}
+
 			SpawnException e(
 				inferErrorCategoryFromResponseDir(INTERNAL_ERROR),
 				session.journey,
 				config);
+			e.setSummary("The application process exited prematurely.");
 			e.setStdoutAndErrData(getStdoutErrData());
 			loadSubprocessErrorMessagesAndAnnotations(e);
 			throw e.finalize();
@@ -319,6 +324,16 @@ private:
 		TRACE_POINT();
 		sleepShortlyToCaptureMoreStdoutStderr();
 		loadJourneyStateFromResponseDir();
+		if (session.journey.getFirstFailedStep() == UNKNOWN_JOURNEY_STEP) {
+			if (session.journey.hasStep(SUBPROCESS_WRAPPER_PREPARATION)) {
+				session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION, true);
+			} else if (session.journey.hasStep(SUBPROCESS_APP_LOAD_OR_EXEC)) {
+				session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC, true);
+			} else if (session.journey.hasStep(SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER)) {
+				session.journey.setStepErrored(SUBPROCESS_PREPARE_AFTER_FORKING_FROM_PRELOADER, true);
+			}
+		}
+
 		SpawnException e(
 			inferErrorCategoryFromResponseDir(INTERNAL_ERROR),
 			session.journey,
@@ -517,7 +532,7 @@ private:
 		sleepShortlyToCaptureMoreStdoutStderr();
 
 		if (!config->genericApp && config->startsUsingWrapper) {
-			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
+			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(INTERNAL_ERROR, session.journey, config);
@@ -576,7 +591,7 @@ private:
 			throw e.finalize();
 
 		} else {
-			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC);
+			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(INTERNAL_ERROR, session.journey, config);
@@ -609,7 +624,7 @@ private:
 		sleepShortlyToCaptureMoreStdoutStderr();
 
 		if (!config->genericApp && config->startsUsingWrapper) {
-			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
+			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(INTERNAL_ERROR, session.journey, config);
@@ -668,7 +683,7 @@ private:
 			throw e.finalize();
 
 		} else {
-			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC);
+			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(INTERNAL_ERROR, session.journey, config);
@@ -706,7 +721,7 @@ private:
 		sleepShortlyToCaptureMoreStdoutStderr();
 
 		if (!internalFieldErrors.empty()) {
-			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM);
+			session.journey.setStepErrored(SPAWNING_KIT_HANDSHAKE_PERFORM, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(
@@ -742,7 +757,7 @@ private:
 			throw e.finalize();
 
 		} else if (!config->genericApp && config->startsUsingWrapper) {
-			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION);
+			session.journey.setStepErrored(SUBPROCESS_WRAPPER_PREPARATION, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(
@@ -815,7 +830,7 @@ private:
 			throw e.finalize();
 
 		} else {
-			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC);
+			session.journey.setStepErrored(SUBPROCESS_APP_LOAD_OR_EXEC, true);
 			loadJourneyStateFromResponseDir();
 
 			SpawnException e(
@@ -1003,16 +1018,16 @@ private:
 		try {
 			switch (state) {
 			case STEP_IN_PROGRESS:
-				session.journey.setStepInProgress(step);
+				session.journey.setStepInProgress(step, true);
 				break;
 			case STEP_PERFORMED:
-				session.journey.setStepPerformed(step);
+				session.journey.setStepPerformed(step, true);
 				break;
 			case STEP_ERRORED:
-				session.journey.setStepErrored(step);
+				session.journey.setStepErrored(step, true);
 				break;
 			default:
-				session.journey.setStepErrored(step);
+				session.journey.setStepErrored(step, true);
 
 				SpawnException e(
 					INTERNAL_ERROR,
@@ -1290,6 +1305,14 @@ private:
 	}
 
 public:
+	struct DebugSupport {
+		virtual ~DebugSupport() { }
+		virtual void beginWaitUntilSpawningFinished() { }
+	};
+
+	DebugSupport *debugSupport;
+
+
 	HandshakePerform(HandshakeSession &_session, pid_t _pid,
 		const FileDescriptor &_stdinFd = FileDescriptor(),
 		const FileDescriptor &_stdoutAndErrFd = FileDescriptor(),
@@ -1305,7 +1328,8 @@ public:
 		  processExited(false),
 		  finishState(NOT_FINISHED),
 		  socketPingabilityWatcher(NULL),
-		  socketIsNowPingable(false)
+		  socketIsNowPingable(false),
+		  debugSupport(NULL)
 	{
 		assert(_session.context != NULL);
 		assert(_session.context->isFinalized());
@@ -1343,6 +1367,9 @@ public:
 		UPDATE_TRACE_POINT();
 		try {
 			boost::unique_lock<boost::mutex> l(syncher);
+			if (debugSupport != NULL) {
+				debugSupport->beginWaitUntilSpawningFinished();
+			}
 			waitUntilSpawningFinished(l);
 			Result result = handleResponse();
 			loadJourneyStateFromResponseDir();

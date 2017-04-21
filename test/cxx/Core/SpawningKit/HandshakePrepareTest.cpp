@@ -194,7 +194,7 @@ namespace tut {
 		try {
 			preparation.execute();
 			fail("SpawnException expected");
-		} catch (const SpawnException &e) {
+		} catch (const SpawnException &) {
 			ensure_equals(session->journey.getFirstFailedStep(), SPAWNING_KIT_PREPARATION);
 		}
 	}

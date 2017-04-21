@@ -636,6 +636,12 @@ private:
 			} else {
 				return P_STATIC_STRING("an I/O error");
 			}
+		case TIMEOUT_ERROR:
+			if (beginOfSentence) {
+				return P_STATIC_STRING("A timeout error");
+			} else {
+				return P_STATIC_STRING("a timeout error");
+			}
 		default:
 			P_BUG("Unsupported error category " + toString((int) category));
 			return StaticString();

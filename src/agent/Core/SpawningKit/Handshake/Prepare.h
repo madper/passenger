@@ -59,6 +59,7 @@
 #include <Utils/StrIntUtils.h>
 #include <Core/SpawningKit/Context.h>
 #include <Core/SpawningKit/Config.h>
+#include <Core/SpawningKit/Journey.h>
 #include <Core/SpawningKit/Exceptions.h>
 #include <Core/SpawningKit/Handshake/Session.h>
 #include <Core/SpawningKit/Handshake/WorkDir.h>
@@ -163,6 +164,21 @@ private:
 			"u=rwx,g=,o=",
 			session.uid,
 			session.gid);
+
+
+		JourneyStep firstStep = JourneyStep((int) getFirstSubprocessJourneyStep() + 1);
+		JourneyStep lastStep = getLastSubprocessJourneyStep();
+		JourneyStep step;
+
+		for (step = firstStep; step < lastStep; step = JourneyStep((int) step + 1)) {
+			if (!session.journey.hasStep(step)) {
+				continue;
+			}
+
+			string stepString = journeyStepToStringLowerCase(step);
+			string stepDir = session.responseDir + "/steps/" + stepString;
+			makeDirTree(stepDir, "u=rwx,g=,o=", session.uid, session.gid);
+		}
 	}
 
 	void createFifo(const string &path) {

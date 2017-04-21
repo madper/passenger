@@ -276,14 +276,17 @@ public:
 		}
 	}
 
-	void setStepInProgress(JourneyStep step) {
+	void setStepInProgress(JourneyStep step, bool force = false) {
 		JourneyStepInfo &info = getStepInfoMutable(step);
 		if (info.state == STEP_IN_PROGRESS) {
 			return;
-		} else if (info.state == STEP_NOT_STARTED) {
+		} else if (info.state == STEP_NOT_STARTED || force) {
 			info.state = STEP_IN_PROGRESS;
-			info.startTime =
-				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+			// When `force` is true, we don't want to overwrite the previous endTime.
+			if (info.endTime == 0) {
+				info.startTime =
+					SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+			}
 		} else {
 			throw RuntimeException("Unable to change state for journey step "
 				+ journeyStepToString(step)
@@ -291,14 +294,17 @@ public:
 		}
 	}
 
-	void setStepPerformed(JourneyStep step) {
+	void setStepPerformed(JourneyStep step, bool force = false) {
 		JourneyStepInfo &info = getStepInfoMutable(step);
 		if (info.state == STEP_PERFORMED) {
 			return;
-		} else if (info.state == STEP_IN_PROGRESS) {
+		} else if (info.state == STEP_IN_PROGRESS || true) {
 			info.state = STEP_PERFORMED;
-			info.endTime =
-				SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+			// When `force` is true, we don't want to overwrite the previous endTime.
+			if (info.endTime == 0) {
+				info.endTime =
+					SystemTime::getMonotonicUsecWithGranularity<SystemTime::GRAN_10MSEC>();
+			}
 		} else {
 			throw RuntimeException("Unable to change state for journey step "
 				+ journeyStepToString(step) + " because it wasn't already in progress");
