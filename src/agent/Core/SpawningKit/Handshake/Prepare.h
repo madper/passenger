@@ -108,6 +108,8 @@ private:
 				throw SystemException("Cannot lookup up system user database entry"
 					" for user '" + username + "'", ret);
 			}
+		} else if (userInfo == NULL) {
+			throw RuntimeException("The operating system user '" + username + "' does not exist");
 		} else {
 			session.uid = userInfo->pw_uid;
 		}
@@ -124,6 +126,8 @@ private:
 				throw SystemException("Cannot lookup up system group database entry"
 					" for group '" + groupname + "'", ret);
 			}
+		} else if (groupInfo == NULL) {
+			throw RuntimeException("The operating system group '" + groupname + "' does not exist");
 		} else {
 			session.gid = groupInfo->gr_gid;
 		}
@@ -383,10 +387,7 @@ private:
 
 	void throwSpawnExceptionBecauseOfPortFindingTimeout() {
 		assert(config->genericApp || config->findFreePort);
-		SpawnException e(
-			TIMEOUT_ERROR,
-			session.journey,
-			config);
+		SpawnException e(TIMEOUT_ERROR, session.journey, config);
 		e.setProblemDescriptionHTML(
 			"<p>The " PROGRAM_NAME " application server tried"
 			" to look for a free TCP port for the web application"
@@ -441,10 +442,7 @@ private:
 			maxPortRange = context->maxPortRange;
 		}
 
-		SpawnException e(
-			INTERNAL_ERROR,
-			session.journey,
-			config);
+		SpawnException e(INTERNAL_ERROR, session.journey, config);
 		e.setSummary("Could not find a free port to spawn the application on.");
 		e.setProblemDescriptionHTML(
 			"<p>The " PROGRAM_NAME " application server tried"
