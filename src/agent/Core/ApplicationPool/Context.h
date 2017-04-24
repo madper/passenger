@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2014-2015 Phusion Holding B.V.
+ *  Copyright (c) 2014-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -83,8 +83,8 @@ public:
 
 	/****** Configuration objects ******/
 
-	const SpawningKit::ConfigPtr &getSpawningKitConfig() const {
-		return mSpawningKitFactory->getConfig();
+	SpawningKit::Context *getSpawningKitContext() const {
+		return mSpawningKitFactory->getContext();
 	}
 };
 

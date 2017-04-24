@@ -455,14 +455,14 @@ public:
 
 			if (adminSocket != -1) {
 				SpawningKit::PipeWatcherPtr watcher = boost::make_shared<SpawningKit::PipeWatcher>(
-					getContext()->getSpawningKitConfig(), adminSocket, "stdout", info.pid);
+					adminSocket, "stdout", info.pid);
 				watcher->initialize();
 				watcher->start();
 			}
 
 			if (errorPipe != -1) {
 				SpawningKit::PipeWatcherPtr watcher = boost::make_shared<SpawningKit::PipeWatcher>(
-					getContext()->getSpawningKitConfig(), errorPipe, "stderr", info.pid);
+					errorPipe, "stderr", info.pid);
 				watcher->initialize();
 				watcher->start();
 			}

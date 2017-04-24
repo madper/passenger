@@ -112,8 +112,7 @@ private:
 	}
 
 public:
-	PipeWatcher(const FileDescriptor &_fd,
-		const char *_name, pid_t _pid)
+	PipeWatcher(const FileDescriptor &_fd, const char *_name, pid_t _pid)
 		: fd(_fd),
 		  name(_name),
 		  pid(_pid),

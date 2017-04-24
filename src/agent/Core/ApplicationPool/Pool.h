@@ -405,7 +405,7 @@ public:
 	/****** General utilities ******/
 
 	Context *getContext();
-	const SpawningKit::ConfigPtr &getSpawningKitConfig() const;
+	SpawningKit::Context *getSpawningKitContext() const;
 	const UnionStation::ContextPtr &getUnionStationContext() const;
 	const RandomGeneratorPtr &getRandomGenerator() const;
 
