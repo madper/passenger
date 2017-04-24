@@ -32,6 +32,8 @@
 #include <oxt/macros.hpp>
 #include <oxt/backtrace.hpp>
 
+#include <jsoncpp/json.h>
+
 #include <Logging.h>
 #include <StaticString.h>
 #include <Utils/StrIntUtils.h>
@@ -123,8 +125,16 @@ struct JourneyStepInfo {
 	unsigned long long usecDuration() const {
 		return endTime - startTime;
 	}
+
+	Json::Value inspectAsJson(JourneyStep step) const {
+		Json::Value doc;
+		doc["state"] = journeyStepStateToString(state);
+		doc["usec_duration"] = usecDuration();
+		return doc;
+	}
 };
 
+inline OXT_PURE StaticString journeyTypeToString(JourneyType type);
 inline OXT_PURE StaticString journeyStepToString(JourneyStep step);
 inline OXT_PURE string journeyStepToStringLowerCase(JourneyStep step);
 inline OXT_PURE StaticString journeyStepStateToString(JourneyStepState state);
@@ -187,7 +197,6 @@ private:
 
 	void fillInStepsForSpawnThroughPreloaderJourney() {
 		insertStep(SPAWNING_KIT_PREPARATION);
-		insertStep(SPAWNING_KIT_FORK_SUBPROCESS);
 		insertStep(SPAWNING_KIT_CONNECT_TO_PRELOADER);
 		insertStep(SPAWNING_KIT_SEND_COMMAND_TO_PRELOADER);
 		insertStep(SPAWNING_KIT_READ_RESPONSE_FROM_PRELOADER);
@@ -333,8 +342,37 @@ public:
 		info.startTime = 0;
 		info.endTime = usecDuration;
 	}
+
+	Json::Value inspectAsJson() const {
+		Json::Value doc, steps;
+		doc["type"] = journeyTypeToString(type).toString();
+
+		Map::const_iterator it, end = orderedSteps.end();
+		for (it = steps.begin(); it != end; it++) {
+			const Step step = it.first;
+			const StepInfo &info = it.second;
+			steps[journeyStepToString(step).toString()] = info.inspectAsJson(step);
+		}
+		doc["steps"] = steps;
+
+		return doc;
+	}
 };
 
+
+inline OXT_PURE StaticString
+journeyTypeToString(JourneyType type) {
+	switch (type) {
+	case SPAWN_DIRECTLY:
+		return P_STATIC_STRING("SPAWN_DIRECTLY");
+	case START_PRELOADER:
+		return P_STATIC_STRING("START_PRELOADER");
+	case SPAWN_THROUGH_PRELOADER:
+		return P_STATIC_STRING("SPAWN_THROUGH_PRELOADER");
+	default:
+		return P_STATIC_STRING("UNKNOWN_JOURNEY_TYPE");
+	}
+}
 
 inline OXT_PURE StaticString
 journeyStepToString(JourneyStep step) {

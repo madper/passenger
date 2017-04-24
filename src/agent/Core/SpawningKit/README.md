@@ -126,7 +126,7 @@ The journey looks like this when starting a preloader:
                                          Execute wrapper in preloader mode
                                          (if applicable)
                                             |
-                                         Execute/load application
+                                         Load application
                                          (and if applicable, do so in
                                          preloader mode)
                                             |
