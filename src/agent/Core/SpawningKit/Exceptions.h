@@ -61,6 +61,7 @@ enum ErrorCategory {
 	UNKNOWN_ERROR_CATEGORY
 };
 
+inline StaticString errorCategoryToString(ErrorCategory category);
 inline ErrorCategory inferErrorCategoryFromAnotherException(const std::exception &e,
 	JourneyStep failedJourneyStep);
 
@@ -916,7 +917,7 @@ public:
 	Json::Value inspectBasicInfoAsJson() const {
 		Json::Value doc;
 
-		doc["category"] = errorCategoryToString(category);
+		doc["category"] = errorCategoryToString(category).toString();
 		doc["summary"] = summary;
 		doc["problem_description_html"] = problemDescription;
 		doc["solution_description_html"] = solutionDescription;
@@ -952,7 +953,7 @@ public:
 		Json::Value doc;
 
 		doc["envvars"] = getPreloaderEnvvars();
-		env["user_info"] = getPreloaderUserInfo();
+		doc["user_info"] = getPreloaderUserInfo();
 		doc["ulimits"] = getPreloaderUlimits();
 
 		return doc;
@@ -966,7 +967,7 @@ public:
 		doc["ulimits"] = getSubprocessUlimits();
 		doc["stdout_and_err"] = getStdoutAndErrData();
 
-		StringKeyTable<string>::ConstIterator it(annotations);
+		StringKeyTable<string>::ConstIterator it(this->annotations);
 		while (*it != NULL) {
 			annotations[it.getKey().toString()] = it.getValue();
 			it.next();

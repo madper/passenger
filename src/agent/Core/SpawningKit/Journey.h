@@ -111,6 +111,17 @@ enum JourneyStepState {
 	UNKNOWN_JOURNEY_STEP_STATE
 };
 
+
+inline OXT_PURE StaticString journeyTypeToString(JourneyType type);
+inline OXT_PURE StaticString journeyStepToString(JourneyStep step);
+inline OXT_PURE string journeyStepToStringLowerCase(JourneyStep step);
+inline OXT_PURE StaticString journeyStepStateToString(JourneyStepState state);
+inline OXT_PURE JourneyStepState stringToJourneyStepState(const StaticString &value);
+
+inline OXT_PURE JourneyStep getFirstSubprocessJourneyStep() { return SUBPROCESS_BEFORE_FIRST_EXEC; }
+inline OXT_PURE JourneyStep getLastSubprocessJourneyStep() { return SUBPROCESS_FINISH; }
+
+
 struct JourneyStepInfo {
 	JourneyStepState state;
 	MonotonicTimeUsec startTime;
@@ -128,20 +139,11 @@ struct JourneyStepInfo {
 
 	Json::Value inspectAsJson(JourneyStep step) const {
 		Json::Value doc;
-		doc["state"] = journeyStepStateToString(state);
+		doc["state"] = journeyStepStateToString(state).toString();
 		doc["usec_duration"] = usecDuration();
 		return doc;
 	}
 };
-
-inline OXT_PURE StaticString journeyTypeToString(JourneyType type);
-inline OXT_PURE StaticString journeyStepToString(JourneyStep step);
-inline OXT_PURE string journeyStepToStringLowerCase(JourneyStep step);
-inline OXT_PURE StaticString journeyStepStateToString(JourneyStepState state);
-inline OXT_PURE JourneyStepState stringToJourneyStepState(const StaticString &value);
-
-inline OXT_PURE JourneyStep getFirstSubprocessJourneyStep() { return SUBPROCESS_BEFORE_FIRST_EXEC; }
-inline OXT_PURE JourneyStep getLastSubprocessJourneyStep() { return SUBPROCESS_FINISH; }
 
 
 class Journey {
@@ -347,10 +349,10 @@ public:
 		Json::Value doc, steps;
 		doc["type"] = journeyTypeToString(type).toString();
 
-		Map::const_iterator it, end = orderedSteps.end();
-		for (it = steps.begin(); it != end; it++) {
-			const Step step = it.first;
-			const StepInfo &info = it.second;
+		Map::const_iterator it, end = this->steps.end();
+		for (it = this->steps.begin(); it != end; it++) {
+			const JourneyStep step = it->first;
+			const JourneyStepInfo &info = it->second;
 			steps[journeyStepToString(step).toString()] = info.inspectAsJson(step);
 		}
 		doc["steps"] = steps;
