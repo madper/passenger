@@ -165,7 +165,7 @@ rethrowException(const ExceptionPtr &e) {
 }
 
 void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Options &options,
-	Context *context)
+	const Context *context)
 {
 	TRACE_POINT();
 	UnionStation::TransactionPtr transaction;
