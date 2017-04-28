@@ -237,7 +237,7 @@ private:
 		const Json::Value appConfigJson = config->getFieldsToPassToApp();
 		Json::Value::const_iterator it, end = appConfigJson.end();
 		for (it = appConfigJson.begin(); it != end; it++) {
-			args[it.memberName()] = *it;
+			args[it.name()] = *it;
 		}
 	}
 
@@ -265,11 +265,11 @@ private:
 			case Json::realValue:
 			case Json::stringValue:
 			case Json::booleanValue:
-				createFile(dir + "/" + it.memberName(),
+				createFile(dir + "/" + it.name(),
 					jsonValueToString(*it));
 				break;
 			default:
-				createFile(dir + "/" + it.memberName() + ".json",
+				createFile(dir + "/" + it.name() + ".json",
 					jsonValueToString(*it));
 				break;
 			}
