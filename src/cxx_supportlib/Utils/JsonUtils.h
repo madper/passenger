@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2014-2016 Phusion Holding B.V.
+ *  Copyright (c) 2014-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -70,6 +70,15 @@ getJsonField(Json::Value &json, const char *key) {
 	}
 }
 
+
+inline int
+getJsonIntField(const Json::Value &json, const char *key) {
+	if (json.isMember(key)) {
+		return json[key].asInt();
+	} else {
+		throw VariantMap::MissingKeyException(key);
+	}
+}
 
 inline int
 getJsonIntField(const Json::Value &json, const Json::StaticString &key) {
@@ -157,6 +166,15 @@ getJsonUint64Field(const Json::Value &json, const char *key, unsigned int defaul
 	}
 }
 
+
+inline StaticString
+getJsonStaticStringField(const Json::Value &json, const char *key) {
+	if (json.isMember(key)) {
+		return json[key].asCString();
+	} else {
+		throw VariantMap::MissingKeyException(key);
+	}
+}
 
 inline StaticString
 getJsonStaticStringField(const Json::Value &json, const Json::StaticString &key) {
