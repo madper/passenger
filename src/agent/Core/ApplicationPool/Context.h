@@ -29,7 +29,7 @@
 #include <boost/thread.hpp>
 #include <boost/pool/object_pool.hpp>
 #include <Exceptions.h>
-#include <Utils/ClassUtils.h>
+#include <Utils/VariantMap.h>
 #include <Core/SpawningKit/Factory.h>
 
 namespace Passenger {
@@ -52,30 +52,29 @@ class Process;
  * If it does, then all operations on any of the fields in that group requires
  * grabbing the mutex unless documented otherwise.
  */
-class Context {
-private:
-	/****** Memory management objects *****/
-
-	P_RO_PROPERTY_REF(private, boost::mutex, MmSyncher);
-	P_RO_PROPERTY_REF(private, object_pool<Session>, SessionObjectPool);
-	P_RO_PROPERTY_REF(private, object_pool<Process>, ProcessObjectPool);
-
-
-	/****** Configuration objects ******/
-
-	P_PROPERTY_CONST_REF(private, SpawningKit::FactoryPtr, SpawningKitFactory);
-
-
+struct Context {
 public:
-	/****** Initialization ******/
+	/****** Working objects ******/
+
+	boost::mutex memoryManagementSyncher;
+	boost::object_pool<Session> sessionObjectPool;
+	boost::object_pool<Process> processObjectPool;
+
+
+	/****** Dependencies ******/
+
+	SpawningKit::FactoryPtr spawningKitFactory;
+	VariantMap *agentsOptions;
+
 
 	Context()
-		: mSessionObjectPool(64, 1024),
-		  mProcessObjectPool(4, 64)
+		: sessionObjectPool(64, 1024),
+		  processObjectPool(4, 64),
+		  agentsOptions(NULL)
 		{ }
 
 	void finalize() {
-		if (mSpawningKitFactory == NULL) {
+		if (spawningKitFactory == NULL) {
 			throw RuntimeException("spawningKitFactory must be set");
 		}
 	}
@@ -84,7 +83,11 @@ public:
 	/****** Configuration objects ******/
 
 	SpawningKit::Context *getSpawningKitContext() const {
-		return mSpawningKitFactory->getContext();
+		return spawningKitFactory->getContext();
+	}
+
+	ResourceLocator *getResourceLocator() const {
+		return getSpawningKitContext()->resourceLocator;
 	}
 };
 

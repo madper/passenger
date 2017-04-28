@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2016 Phusion Holding B.V.
+ *  Copyright (c) 2011-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -110,8 +110,8 @@ private:
 
 	void destroySelf() const {
 		this->~Session();
-		LockGuard l(context->getMmSyncher());
-		context->getSessionObjectPool().free(const_cast<Session *>(this));
+		LockGuard l(context->memoryManagementSyncher);
+		context->sessionObjectPool.free(const_cast<Session *>(this));
 	}
 
 public:

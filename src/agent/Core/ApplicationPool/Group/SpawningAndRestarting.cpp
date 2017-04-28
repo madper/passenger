@@ -97,7 +97,7 @@ Group::spawnThreadRealMain(const SpawningKit::SpawnerPtr &spawner,
 			boost::this_thread::restore_syscall_interruption rsi(dsi);
 			if (shouldFail) {
 				SpawningKit::SpawnException e("Simulated failure");
-				processAndLogNewSpawnException(e, options, pool->getSpawningKitConfig());
+				processAndLogNewSpawnException(e, options, pool->getContext());
 				throw e;
 			} else {
 				process = createProcessObject(spawner->spawn(options));

@@ -163,7 +163,7 @@ public:
 	unsigned long long maxIdleTime;
 	bool selfchecking;
 
-	Context context;
+	Context *context;
 
 	/**
 	 * Code can register background threads in one of these dynamic thread groups
@@ -393,8 +393,7 @@ public:
 
 	/****** Initialization and shutdown ******/
 
-	Pool(const SpawningKit::FactoryPtr &spawningKitFactory,
-		const VariantMap *agentsOptions = NULL);
+	Pool(Context *context);
 	~Pool();
 	void initialize();
 	void initDebugging();

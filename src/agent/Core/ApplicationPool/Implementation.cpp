@@ -45,7 +45,6 @@
 #include <Utils/JsonUtils.h>
 #include <Core/ApplicationPool/Pool.h>
 #include <Core/ApplicationPool/Group.h>
-#include <Core/ApplicationPool/ErrorRenderer.h>
 #include <Core/ApplicationPool/Pool/InitializationAndShutdown.cpp>
 #include <Core/ApplicationPool/Pool/AnalyticsCollection.cpp>
 #include <Core/ApplicationPool/Pool/GarbageCollection.cpp>
@@ -64,6 +63,7 @@
 #include <Core/ApplicationPool/Group/InternalUtils.cpp>
 #include <Core/ApplicationPool/Group/StateInspection.cpp>
 #include <Core/ApplicationPool/Group/Verification.cpp>
+#include <Core/SpawningKit/ErrorRenderer.h>
 
 namespace Passenger {
 namespace ApplicationPool2 {
@@ -165,20 +165,20 @@ rethrowException(const ExceptionPtr &e) {
 }
 
 void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Options &options,
-	const SpawningKit::ConfigPtr &config)
+	Context *context)
 {
 	TRACE_POINT();
 	UnionStation::TransactionPtr transaction;
-	ErrorRenderer renderer(*config->resourceLocator);
+	SpawningKit::ErrorRenderer renderer(context->getSpawningKitContext());
 	string appMessage = e.getErrorPage();
 	string errorId;
 	char filename[PATH_MAX];
 	stringstream stream;
 
-	if (options.analytics && config->unionStationContext != NULL) {
+	if (options.analytics && context->unionStationContext != NULL) {
 		try {
 			UPDATE_TRACE_POINT();
-			transaction = config->unionStationContext->newTransaction(
+			transaction = context->unionStationContext->newTransaction(
 				options.getAppGroupName(),
 				"exceptions",
 				options.unionStationKey);
@@ -195,7 +195,7 @@ void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Option
 		appMessage = "none";
 	}
 	if (errorId.empty()) {
-		errorId = config->randomGenerator->generateHexString(4);
+		errorId = context->getRandomGenerator()->generateHexString(4);
 	}
 	e.set("error_id", errorId);
 
@@ -204,7 +204,7 @@ void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Option
 		string errorPage;
 
 		UPDATE_TRACE_POINT();
-		errorPage = renderer.renderWithDetails(appMessage, options, &e);
+		errorPage = renderer.renderWithDetails(appMessage, options, e);
 
 		#if (defined(__linux__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 11))) || defined(__APPLE__) || defined(__FreeBSD__)
 			snprintf(filename, PATH_MAX, "%s/passenger-error-XXXXXX.html",
@@ -303,11 +303,11 @@ void processAndLogNewSpawnException(SpawningKit::SpawnException &e, const Option
 	stream << "  Message from application: " << appMessage << "\n";
 	P_ERROR(stream.str());
 
-	if (config->agentsOptions != NULL) {
+	if (context->agentsOptions != NULL) {
 		HookScriptOptions hOptions;
 		hOptions.name = "spawn_failed";
-		hOptions.spec = config->agentsOptions->get("hook_spawn_failed", false);
-		hOptions.agentsOptions = config->agentsOptions;
+		hOptions.spec = context->agentsOptions->get("hook_spawn_failed", false);
+		hOptions.agentsOptions = context->agentsOptions;
 		hOptions.environment.push_back(make_pair("PASSENGER_APP_ROOT", options.appRoot));
 		hOptions.environment.push_back(make_pair("PASSENGER_APP_GROUP_NAME", options.getAppGroupName()));
 		hOptions.environment.push_back(make_pair("PASSENGER_ERROR_MESSAGE", e.what()));

@@ -144,17 +144,7 @@ Group::~Group() {
 
 bool
 Group::initialize() {
-	Json::Value json;
-
-	json["type"] = "dummy";
-	json["pid"] = 0;
-	json["gupid"] = "0";
-	json["spawner_creation_time"] = 0;
-	json["spawn_start_time"] = 0;
-	json["sockets"] = Json::Value(Json::arrayValue);
-
-	nullProcess = createProcessObject(json);
-	nullProcess->shutdownNotRequired();
+	nullProcess = createNullProcessObject();
 	return true;
 }
 

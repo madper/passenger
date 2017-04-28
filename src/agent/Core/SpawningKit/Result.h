@@ -49,6 +49,20 @@ using namespace std;
 class Result {
 public:
 	struct Socket {
+		struct Schema: public ConfigKit::Schema {
+			Schema() {
+				using namespace Passenger::ConfigKit;
+
+				add("address", STRING_TYPE, REQUIRED);
+				add("protocol", STRING_TYPE, REQUIRED);
+				add("description", STRING_TYPE, OPTIONAL);
+				add("concurrency", INT_TYPE, REQUIRED);
+				add("accept_http_requests", BOOL_TYPE, OPTIONAL, false);
+
+				finalize();
+			}
+		};
+
 		string address;
 		string protocol;
 		string description;
@@ -64,6 +78,17 @@ public:
 			: concurrency(-1),
 			  acceptHttpRequests(false)
 			{ }
+
+		Json::Value inspectAsJson() const {
+			Json::Value doc;
+			doc["address"] = address;
+			doc["protocol"] = protocol;
+			if (!description.empty()) {
+				doc["description"] = description;
+			}
+			doc["accept_http_requests"] = acceptHttpRequests;
+			return doc;
+		}
 	};
 
 private:

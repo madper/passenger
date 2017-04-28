@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2015 Phusion Holding B.V.
+ *  Copyright (c) 2011-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -65,16 +65,14 @@ typedef boost::container::vector<ProcessPtr> ProcessList;
 
 /**
  * Represents an application process, as spawned by a SpawningKit::Spawner. Every
- * Process has a PID, an admin socket and a list of sockets on which it listens for
- * connections. A Process object is contained inside a Group.
+ * Process has a PID, a stdin pipe, an output pipe and a list of sockets on which
+ * it listens for connections. A Process object is contained inside a Group.
  *
- * The admin socket, an anonymous Unix domain socket, is mapped to the process's
- * STDIN and STDOUT and has two functions.
+ * The stdin pipe is mapped to the process's STDIN and is used for garbage
+ * collection: closing the STDIN part causes the process to gracefully terminate itself.
  *
- *  1. It acts as the main communication channel with the process. Commands are
- *     sent to and responses are received from it.
- *  2. It's used for garbage collection: closing the STDIN part causes the process
- *     to gracefully terminate itself.
+ * The output pipe is mapped to the process' STDOUT and STDERR. All data coming
+ * from those pipes will be printed.
  *
  * Except for the otherwise documented parts, this class is not thread-safe,
  * so only use within the Pool lock.
@@ -127,15 +125,14 @@ private:
 	unsigned int sessionSocketCount;
 	Socket *sessionSockets[MAX_SESSION_SOCKETS];
 
-	/** Admin socket. See Process class description. */
-	FileDescriptor adminSocket;
+	/** Input pipe. See Process class description. */
+	FileDescriptor inputPipe;
 
 	/**
-	 * Pipe on which this process outputs errors. Mapped to the process's STDERR.
-	 * Only Processes spawned by DirectSpawner have this set.
-	 * SmartSpawner-spawned Processes use the same STDERR as their parent preloader processes.
+	 * Pipe on which this process outputs stdout and stderr data. Mapped to the
+	 * process's STDOUT and STDERR.
 	 */
-	FileDescriptor errorPipe;
+	FileDescriptor outputPipe;
 
 	/**
 	 * The code revision of the application, inferred through various means.
@@ -218,6 +215,18 @@ private:
 		str.size   = value.size();
 		buffer.append(value.data(), value.size());
 		buffer.append(1, '\0');
+	}
+
+	void initializeSocketsAndStringFields(const SpawningKit::Result &result) {
+		Json::Value doc, sockets(Json::arrayValue);
+		vector<SpawningKit::Result::Socket>::const_iterator it, end = result.sockets.end();
+
+		for (it = result.sockets.begin(); it != end; it++) {
+			sockets.append(it->inspectAsJson());
+		}
+
+		doc["sockets"] = sockets;
+		initializeSocketsAndStringFields(doc);
 	}
 
 	void initializeSocketsAndStringFields(const Json::Value &json) {
@@ -319,8 +328,8 @@ private:
 
 	void destroySelf() const {
 		this->~Process();
-		LockGuard l(getContext()->getMmSyncher());
-		getContext()->getProcessObjectPool().free(const_cast<Process *>(this));
+		LockGuard l(getContext()->memoryManagementSyncher);
+		getContext()->processObjectPool.free(const_cast<Process *>(this));
 	}
 
 
@@ -447,25 +456,40 @@ public:
 	{
 		initializeSocketsAndStringFields(json);
 		indexSessionSockets();
+	}
 
-		const SpawningKit::Result *skResult = dynamic_cast<const SpawningKit::Result *>(&json);
-		if (skResult != NULL) {
-			adminSocket = skResult->adminSocket;
-			errorPipe = skResult->errorPipe;
+	Process(const BasicGroupInfo *groupInfo, const SpawningKit::Result &skResult,
+		const Json::Value &json)
+		: info(this, groupInfo, skResult),
+		  sessionSocketCount(0),
+		  spawnerCreationTime(getJsonUint64Field(json, "spawner_creation_time")),
+		  spawnStartTime(skResult.spawnStartTime),
+		  spawnEndTime(skResult.spawnEndTime),
+		  dummy(json["type"] == "dummy"),
+		  requiresShutdown(false),
+		  refcount(1),
+		  index(-1),
+		  lastUsed(spawnEndTime),
+		  sessions(0),
+		  processed(0),
+		  lifeStatus(ALIVE),
+		  enabled(ENABLED),
+		  oobwStatus(OOBW_NOT_ACTIVE),
+		  m_osProcessExists(true),
+		  longRunningConnectionsAborted(false),
+		  shutdownStartTime(0)
+	{
+		initializeSocketsAndStringFields(skResult);
+		indexSessionSockets();
 
-			if (adminSocket != -1) {
-				SpawningKit::PipeWatcherPtr watcher = boost::make_shared<SpawningKit::PipeWatcher>(
-					adminSocket, "stdout", info.pid);
-				watcher->initialize();
-				watcher->start();
-			}
+		inputPipe = skResult.stdinFd;
+		outputPipe = skResult.stdoutAndErrFd;
 
-			if (errorPipe != -1) {
-				SpawningKit::PipeWatcherPtr watcher = boost::make_shared<SpawningKit::PipeWatcher>(
-					errorPipe, "stderr", info.pid);
-				watcher->initialize();
-				watcher->start();
-			}
+		if (outputPipe != -1) {
+			SpawningKit::PipeWatcherPtr watcher = boost::make_shared<SpawningKit::PipeWatcher>(
+				outputPipe, "output", skResult.pid);
+			watcher->initialize();
+			watcher->start();
 		}
 	}
 
@@ -557,8 +581,8 @@ public:
 			lifeStatus = SHUTDOWN_TRIGGERED;
 			shutdownStartTime = now;
 		}
-		if (!dummy) {
-			syscalls::shutdown(adminSocket, SHUT_WR);
+		if (inputPipe != -1) {
+			inputPipe.close();
 		}
 	}
 
@@ -776,7 +800,7 @@ public:
 
 			~Guard() {
 				if (session != NULL) {
-					context->getSessionObjectPool().free(session);
+					context->sessionObjectPool.free(session);
 				}
 			}
 
@@ -786,8 +810,8 @@ public:
 		};
 
 		Context *context = getContext();
-		LockGuard l(context->getMmSyncher());
-		Session *session = context->getSessionObjectPool().malloc();
+		LockGuard l(context->memoryManagementSyncher);
+		Session *session = context->sessionObjectPool.malloc();
 		Guard guard(context, session);
 		session = new (session) Session(context, &info, socket);
 		guard.clear();

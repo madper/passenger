@@ -219,12 +219,12 @@ Pool::syncGetCallback(const AbstractSessionPtr &session, const ExceptionPtr &e,
 
 Context *
 Pool::getContext() {
-	return &context;
+	return context;
 }
 
 SpawningKit::Context *
 Pool::getSpawningKitContext() const {
-	return context.getSpawningKitContext();
+	return context->getSpawningKitContext();
 }
 
 const UnionStation::ContextPtr &

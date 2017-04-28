@@ -97,14 +97,14 @@ Group::mergeOptions(const Options &other) {
  */
 bool
 Group::prepareHookScriptOptions(HookScriptOptions &hsOptions, const char *name) {
-	SpawningKit::ConfigPtr config = getPool()->getSpawningKitConfig();
-	if (config->agentsOptions == NULL) {
+	Context *context = getPool()->getContext();
+	if (context->agentsOptions == NULL) {
 		return false;
 	}
 
 	hsOptions.name = name;
 	string hookName = string("hook_") + name;
-	hsOptions.spec = config->agentsOptions->get(hookName, false);
+	hsOptions.spec = context->agentsOptions->get(hookName, false);
 
 	return true;
 }
@@ -144,7 +144,47 @@ Group::generateStickySessionId() {
 }
 
 ProcessPtr
-Group::createProcessObject(const Json::Value &json) {
+Group::createNullProcessObject() {
+	struct Guard {
+		Context *context;
+		Process *process;
+
+		Guard(Context *c, Process *s)
+			: context(c),
+			  process(s)
+			{ }
+
+		~Guard() {
+			if (process != NULL) {
+				context->getProcessObjectPool().free(process);
+			}
+		}
+
+		void clear() {
+			process = NULL;
+		}
+	};
+
+	Json::Value json;
+	json["pid"] = 0;
+	json["gupid"] = "0";
+	json["spawner_creation_time"] = 0;
+	json["spawn_start_time"] = 0;
+	json["dummy"] = true;
+	json["sockets"] = Json::Value(Json::arrayValue);
+
+	Context *context = getContext();
+	LockGuard l(context->getMmSyncher());
+	Process *process = context->getProcessObjectPool().malloc();
+	Guard guard(context, process);
+	process = new (process) Process();
+	process->shutdownNotRequired();
+	guard.clear();
+	return ProcessPtr(process, false);
+}
+
+ProcessPtr
+Group::createProcessObject(const SpawningKit::Result &spawnResult) {
 	struct Guard {
 		Context *context;
 		Process *process;
@@ -169,7 +209,7 @@ Group::createProcessObject(const Json::Value &json) {
 	LockGuard l(context->getMmSyncher());
 	Process *process = context->getProcessObjectPool().malloc();
 	Guard guard(context, process);
-	process = new (process) Process(&info, json);
+	process = new (process) Process(&info, spawnResult);
 	guard.clear();
 	return ProcessPtr(process, false);
 }
