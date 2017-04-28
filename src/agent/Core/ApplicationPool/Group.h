@@ -263,7 +263,7 @@ public:
 
 	unsigned int generateStickySessionId();
 	ProcessPtr createNullProcessObject();
-	ProcessPtr createProcessObject(const SpawningKit::Result &spawnResult);
+	ProcessPtr createProcessObject(const SpawningKit::Spawner &spawner, const SpawningKit::Result &spawnResult);
 	bool poolAtFullCapacity() const;
 	ProcessPtr poolForceFreeCapacity(const Group *exclude, boost::container::vector<Callback> &postLockActions);
 	void wakeUpGarbageCollector();

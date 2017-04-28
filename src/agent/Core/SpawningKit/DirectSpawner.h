@@ -29,6 +29,7 @@
 #include <stdexcept>
 
 #include <Core/SpawningKit/Spawner.h>
+#include <Core/SpawningKit/Handshake/Session.h>
 #include <Core/SpawningKit/Handshake/Prepare.h>
 #include <Core/SpawningKit/Handshake/Perform.h>
 #include <Constants.h>

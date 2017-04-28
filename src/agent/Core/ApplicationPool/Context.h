@@ -26,6 +26,7 @@
 #ifndef _PASSENGER_APPLICATION_POOL2_CONTEXT_H_
 #define _PASSENGER_APPLICATION_POOL2_CONTEXT_H_
 
+#include <boost/shared_ptr.hpp>
 #include <boost/thread.hpp>
 #include <boost/pool/object_pool.hpp>
 #include <Exceptions.h>
@@ -90,6 +91,8 @@ public:
 		return getSpawningKitContext()->resourceLocator;
 	}
 };
+
+typedef boost::shared_ptr<Context> ContextPtr;
 
 
 } // namespace ApplicationPool2

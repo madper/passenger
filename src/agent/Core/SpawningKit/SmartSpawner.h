@@ -57,6 +57,9 @@
 #include <Core/SpawningKit/Spawner.h>
 #include <Core/SpawningKit/Exceptions.h>
 #include <Core/SpawningKit/PipeWatcher.h>
+#include <Core/SpawningKit/Handshake/Session.h>
+#include <Core/SpawningKit/Handshake/Prepare.h>
+#include <Core/SpawningKit/Handshake/Perform.h>
 #include <Core/SpawningKit/Handshake/BackgroundIOCapturer.h>
 
 namespace Passenger {

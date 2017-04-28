@@ -434,13 +434,13 @@ public:
 	ProcessMetrics metrics;
 
 
-	Process(const BasicGroupInfo *groupInfo, const Json::Value &json)
-		: info(this, groupInfo, json),
+	Process(const BasicGroupInfo *groupInfo, const Json::Value &args)
+		: info(this, groupInfo, args),
 		  sessionSocketCount(0),
-		  spawnerCreationTime(getJsonUint64Field(json, "spawner_creation_time")),
-		  spawnStartTime(getJsonUint64Field(json, "spawn_start_time")),
+		  spawnerCreationTime(getJsonUint64Field(args, "spawner_creation_time")),
+		  spawnStartTime(getJsonUint64Field(args, "spawn_start_time")),
 		  spawnEndTime(SystemTime::getUsec()),
-		  dummy(json["type"] == "dummy"),
+		  dummy(args["type"] == "dummy"),
 		  requiresShutdown(false),
 		  refcount(1),
 		  index(-1),
@@ -454,18 +454,18 @@ public:
 		  longRunningConnectionsAborted(false),
 		  shutdownStartTime(0)
 	{
-		initializeSocketsAndStringFields(json);
+		initializeSocketsAndStringFields(args);
 		indexSessionSockets();
 	}
 
 	Process(const BasicGroupInfo *groupInfo, const SpawningKit::Result &skResult,
-		const Json::Value &json)
+		const Json::Value &args)
 		: info(this, groupInfo, skResult),
 		  sessionSocketCount(0),
-		  spawnerCreationTime(getJsonUint64Field(json, "spawner_creation_time")),
+		  spawnerCreationTime(getJsonUint64Field(args, "spawner_creation_time")),
 		  spawnStartTime(skResult.spawnStartTime),
 		  spawnEndTime(skResult.spawnEndTime),
-		  dummy(json["type"] == "dummy"),
+		  dummy(args["type"] == "dummy"),
 		  requiresShutdown(false),
 		  refcount(1),
 		  index(-1),
@@ -488,6 +488,9 @@ public:
 		if (outputPipe != -1) {
 			SpawningKit::PipeWatcherPtr watcher = boost::make_shared<SpawningKit::PipeWatcher>(
 				outputPipe, "output", skResult.pid);
+			if (!args["log_file"].isNull()) {
+				watcher->setLogFile(args["log_file"].asString());
+			}
 			watcher->initialize();
 			watcher->start();
 		}

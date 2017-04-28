@@ -165,13 +165,13 @@ Group::createNullProcessObject() {
 		}
 	};
 
-	Json::Value json;
-	json["pid"] = 0;
-	json["gupid"] = "0";
-	json["spawner_creation_time"] = 0;
-	json["spawn_start_time"] = 0;
-	json["dummy"] = true;
-	json["sockets"] = Json::Value(Json::arrayValue);
+	Json::Value args;
+	args["pid"] = 0;
+	args["gupid"] = "0";
+	args["spawner_creation_time"] = 0;
+	args["spawn_start_time"] = 0;
+	args["dummy"] = true;
+	args["sockets"] = Json::Value(Json::arrayValue);
 
 	Context *context = getContext();
 	LockGuard l(context->getMmSyncher());
@@ -184,7 +184,9 @@ Group::createNullProcessObject() {
 }
 
 ProcessPtr
-Group::createProcessObject(const SpawningKit::Result &spawnResult) {
+Group::createProcessObject(const SpawningKit::Spawner &spawner,
+	const SpawningKit::Result &spawnResult, const Json::Value &args)
+{
 	struct Guard {
 		Context *context;
 		Process *process;
@@ -205,11 +207,14 @@ Group::createProcessObject(const SpawningKit::Result &spawnResult) {
 		}
 	};
 
+	Json::Value args;
+	args["spawner_creation_time"] = spawner.creationTime;
+
 	Context *context = getContext();
 	LockGuard l(context->getMmSyncher());
 	Process *process = context->getProcessObjectPool().malloc();
 	Guard guard(context, process);
-	process = new (process) Process(&info, spawnResult);
+	process = new (process) Process(&info, spawnResult, args);
 	guard.clear();
 	return ProcessPtr(process, false);
 }

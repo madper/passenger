@@ -32,8 +32,11 @@
 #include <sys/types.h>
 
 #include <FileDescriptor.h>
+#include <Exceptions.h>
 #include <Utils/SystemTime.h>
+#include <ConfigKit/ConfigKit.h>
 #include <Core/SpawningKit/Context.h>
+#include <Core/SpawningKit/Config.h>
 
 namespace Passenger {
 namespace SpawningKit {
@@ -56,7 +59,7 @@ public:
 				add("address", STRING_TYPE, REQUIRED);
 				add("protocol", STRING_TYPE, REQUIRED);
 				add("description", STRING_TYPE, OPTIONAL);
-				add("concurrency", INT_TYPE, REQUIRED);
+				add("concurrency", INT_TYPE, OPTIONAL, -1);
 				add("accept_http_requests", BOOL_TYPE, OPTIONAL, false);
 
 				finalize();
@@ -78,6 +81,24 @@ public:
 			: concurrency(-1),
 			  acceptHttpRequests(false)
 			{ }
+
+		Socket(const Schema &schema, const Json::Value &values) {
+			ConfigKit::Store store(schema);
+			vector<ConfigKit::Error> errors;
+
+			if (!store.update(values, errors)) {
+				throw ArgumentException("Invalid initial values: "
+					+ toString(errors));
+			}
+
+			address = store["address"].asString();
+			protocol = store["protocol"].asString();
+			if (!store["description"].isNull()) {
+				description = store["description"].asString();
+			}
+			concurrency = store["concurrency"].asInt();
+			acceptHttpRequests = store["accept_http_requests"].asBool();
+		}
 
 		Json::Value inspectAsJson() const {
 			Json::Value doc;

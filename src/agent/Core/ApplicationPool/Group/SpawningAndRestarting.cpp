@@ -100,7 +100,7 @@ Group::spawnThreadRealMain(const SpawningKit::SpawnerPtr &spawner,
 				processAndLogNewSpawnException(e, options, pool->getContext());
 				throw e;
 			} else {
-				process = createProcessObject(spawner->spawn(options));
+				process = createProcessObject(*spawner, spawner->spawn(options));
 			}
 		} catch (const boost::thread_interrupted &) {
 			break;

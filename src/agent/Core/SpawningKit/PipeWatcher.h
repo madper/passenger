@@ -34,6 +34,7 @@
 #include <boost/foreach.hpp>
 #include <oxt/thread.hpp>
 #include <oxt/backtrace.hpp>
+#include <string>
 #include <vector>
 
 #include <sys/types.h>
@@ -57,6 +58,7 @@ private:
 	const char *name;
 	pid_t pid;
 	bool started;
+	string logFile;
 	boost::mutex startSyncher;
 	boost::condition_variable startCond;
 
@@ -71,6 +73,16 @@ private:
 			boost::unique_lock<boost::mutex> lock(startSyncher);
 			while (!started) {
 				startCond.wait(lock);
+			}
+		}
+
+		UPDATE_TRACE_POINT();
+		FILE *f = NULL;
+		if (!logFile.empty()) {
+			f = fopen(logFile.c_str(), "a");
+			if (f == NULL) {
+				P_ERROR("Cannot open log file " << logFile);
+				return;
 			}
 		}
 
@@ -95,7 +107,7 @@ private:
 				}
 			} else if (ret == 1 && buf[0] == '\n') {
 				UPDATE_TRACE_POINT();
-				printAppOutput(pid, name, "", 0);
+				printOrLogAppOutput(f, StaticString());
 			} else {
 				UPDATE_TRACE_POINT();
 				vector<StaticString> lines;
@@ -105,9 +117,22 @@ private:
 				}
 				split(StaticString(buf, ret2), '\n', lines);
 				foreach (const StaticString line, lines) {
-					printAppOutput(pid, name, line.data(), line.size());
+					printOrLogAppOutput(f, line);
 				}
 			}
+		}
+
+		if (f != NULL) {
+			fclose(f);
+		}
+	}
+
+	void printOrLogAppOutput(FILE *f, const StaticString &line) {
+		if (f == NULL) {
+			printAppOutput(pid, name, line.data(), line.size());
+		} else {
+			fwrite(line.data(), 1, line.size(), f);
+			fwrite("\n", 1, 2, f);
 		}
 	}
 
@@ -118,6 +143,10 @@ public:
 		  pid(_pid),
 		  started(false)
 		{ }
+
+	void setLogFile(const string &path) {
+		logFile = path;
+	}
 
 	void initialize() {
 		oxt::thread(boost::bind(threadMain, shared_from_this()),

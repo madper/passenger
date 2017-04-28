@@ -15,8 +15,10 @@ using namespace Passenger::ApplicationPool2;
 
 namespace tut {
 	struct Core_ApplicationPool_PoolTest {
-		SpawningKit::ConfigPtr spawningKitConfig;
-		SpawningKit::FactoryPtr spawningKitFactory;
+		SpawningKit::Context::Schema skContextSchema;
+		SpawningKit::Context skContext;
+		SpawningKit::FactoryPtr skFactory;
+		Context context;
 		PoolPtr pool;
 		Pool::DebugSupportPtr debug;
 		Ticket ticket;
@@ -28,13 +30,16 @@ namespace tut {
 		list<SessionPtr> sessions;
 		bool retainSessions;
 
-		Core_ApplicationPool_PoolTest() {
+		Core_ApplicationPool_PoolTest()
+			: skContext(skContextSchema)
+		{
 			retainSessions = false;
-			spawningKitConfig = boost::make_shared<SpawningKit::Config>();
-			spawningKitConfig->resourceLocator = resourceLocator;
-			spawningKitConfig->finalize();
-			spawningKitFactory = boost::make_shared<SpawningKit::Factory>(spawningKitConfig);
-			pool = boost::make_shared<Pool>(spawningKitFactory);
+			skContext.resourceLocator = resourceLocator;
+			skContext.integrationMode = "standalone";
+			skContext.finalize();
+			context.spawningKitFactory = boost::make_shared<SpawningKit::Factory>(&skContext);
+			context.finalize();
+			pool = boost::make_shared<Pool>(&context);
 			pool->initialize();
 			callback.func = _callback;
 			callback.userData = this;
@@ -1552,8 +1557,8 @@ namespace tut {
 		);
 
 		ensure(currentException != NULL);
-		boost::shared_ptr<SpawnException> e = dynamic_pointer_cast<SpawnException>(currentException);
-		ensure(e->getErrorPage().find("Something went wrong!") != string::npos);
+		boost::shared_ptr<SpawningKit::SpawnException> e = dynamic_pointer_cast<SpawningKit::SpawnException>(currentException);
+		ensure(e->getProblemDescriptionHTML().find("Something went wrong!") != string::npos);
 	}
 
 	TEST_METHOD(68) {
@@ -1843,7 +1848,7 @@ namespace tut {
 			setLogLevel(LVL_CRIT);
 			currentSession = pool->get(options, &ticket);
 			fail("SpawnException expected");
-		} catch (const SpawnException &) {
+		} catch (const SpawningKit::SpawnException &) {
 			ensure_equals(pool->getProcessCount(), 2u);
 		}
 	}

@@ -37,7 +37,7 @@
 #include <Utils/Template.h>
 #include <Utils/IOUtils.h>
 #include <Core/SpawningKit/Context.h>
-#include <Core/SpawningKit/Exception.h>
+#include <Core/SpawningKit/Exceptions.h>
 
 namespace Passenger {
 namespace SpawningKit {
@@ -56,10 +56,7 @@ public:
 		templatesDir = context.resourceLocator->getResourcesDir() + "/templates/error_renderer";
 	}
 
-	string renderWithDetails(const StaticString &message,
-		const Options &options,
-		const SpawningKit::SpawnException &e) const
-	{
+	string renderWithDetails(const SpawningKit::SpawnException &e) const {
 		StringMap<StaticString> params;
 		string htmlFile = templatesDir + "/with_details/page.html.template";
 		string cssFile = templatesDir + "/with_details/dist/style.css";

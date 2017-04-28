@@ -196,7 +196,7 @@ public:
 	}
 };
 
-typedef boost::shared_ptr<Context> ConfigPtr;
+typedef boost::shared_ptr<Context> ContextPtr;
 
 
 } // namespace SpawningKit
