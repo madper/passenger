@@ -705,8 +705,8 @@ setGivenEnvVars(const Json::Value &args) {
 	Json::Value::const_iterator it, end = envvars.end();
 
 	for (it = envvars.begin(); it != end; it++) {
-		const char *key = it.memberName();
-		setenv(key, (*it).asCString(), 1);
+		string key = it.name();
+		setenv(key.c_str(), it->asCString(), 1);
 	}
 }
 
