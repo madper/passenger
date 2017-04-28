@@ -140,7 +140,7 @@ struct JourneyStepInfo {
 	Json::Value inspectAsJson(JourneyStep step) const {
 		Json::Value doc;
 		doc["state"] = journeyStepStateToString(state).toString();
-		doc["usec_duration"] = usecDuration();
+		doc["usec_duration"] = (Json::UInt64) usecDuration();
 		return doc;
 	}
 };

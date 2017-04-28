@@ -208,7 +208,7 @@ Group::createProcessObject(const SpawningKit::Spawner &spawner,
 	};
 
 	Json::Value args;
-	args["spawner_creation_time"] = spawner.creationTime;
+	args["spawner_creation_time"] = (Json::UInt64) spawner.creationTime;
 
 	Context *context = getContext();
 	LockGuard l(context->memoryManagementSyncher);
