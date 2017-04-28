@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2015 Phusion Holding B.V.
+ *  Copyright (c) 2011-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -109,7 +109,7 @@ Group::Group(Pool *_pool, const Options &_options)
 	disablingCount = 0;
 	disabledCount  = 0;
 	nEnabledProcessesTotallyBusy = 0;
-	spawner        = getContext()->getSpawningKitFactory()->create(options);
+	spawner        = getContext()->spawningKitFactory->create(options);
 	restartsInitiated = 0;
 	processesBeingSpawned = 0;
 	m_spawning     = false;

@@ -1,6 +1,6 @@
 /*
  *  Phusion Passenger - https://www.phusionpassenger.com/
- *  Copyright (c) 2011-2015 Phusion Holding B.V.
+ *  Copyright (c) 2011-2017 Phusion Holding B.V.
  *
  *  "Passenger", "Phusion Passenger" and "Union Station" are registered
  *  trademarks of Phusion Holding B.V.
@@ -156,7 +156,7 @@ Group::createNullProcessObject() {
 
 		~Guard() {
 			if (process != NULL) {
-				context->getProcessObjectPool().free(process);
+				context->processObjectPool.free(process);
 			}
 		}
 
@@ -174,10 +174,10 @@ Group::createNullProcessObject() {
 	args["sockets"] = Json::Value(Json::arrayValue);
 
 	Context *context = getContext();
-	LockGuard l(context->getMmSyncher());
-	Process *process = context->getProcessObjectPool().malloc();
+	LockGuard l(context->memoryManagementSyncher);
+	Process *process = context->processObjectPool.malloc();
 	Guard guard(context, process);
-	process = new (process) Process();
+	process = new (process) Process(&info, args);
 	process->shutdownNotRequired();
 	guard.clear();
 	return ProcessPtr(process, false);
@@ -185,7 +185,7 @@ Group::createNullProcessObject() {
 
 ProcessPtr
 Group::createProcessObject(const SpawningKit::Spawner &spawner,
-	const SpawningKit::Result &spawnResult, const Json::Value &args)
+	const SpawningKit::Result &spawnResult)
 {
 	struct Guard {
 		Context *context;
@@ -198,7 +198,7 @@ Group::createProcessObject(const SpawningKit::Spawner &spawner,
 
 		~Guard() {
 			if (process != NULL) {
-				context->getProcessObjectPool().free(process);
+				context->processObjectPool.free(process);
 			}
 		}
 
@@ -211,8 +211,8 @@ Group::createProcessObject(const SpawningKit::Spawner &spawner,
 	args["spawner_creation_time"] = spawner.creationTime;
 
 	Context *context = getContext();
-	LockGuard l(context->getMmSyncher());
-	Process *process = context->getProcessObjectPool().malloc();
+	LockGuard l(context->memoryManagementSyncher);
+	Process *process = context->processObjectPool.malloc();
 	Guard guard(context, process);
 	process = new (process) Process(&info, spawnResult, args);
 	guard.clear();

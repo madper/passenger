@@ -243,7 +243,8 @@ Controller::reportSessionCheckoutError(Client *client, Request *req,
 		}
 	}
 	{
-		boost::shared_ptr<SpawnException> e2 = dynamic_pointer_cast<SpawnException>(e);
+		boost::shared_ptr<SpawningKit::SpawnException> e2 =
+			dynamic_pointer_cast<SpawningKit::SpawnException>(e);
 		if (e2 != NULL) {
 			writeSpawnExceptionErrorResponse(client, req, e2);
 			return;
@@ -343,12 +344,12 @@ Controller::writeOtherExceptionErrorResponse(Client *client, Request *req, const
 
 void
 Controller::endRequestWithErrorResponse(Client **c, Request **r,
-	const SpawnException &e)
+	const SpawningKit::SpawnException &e)
 {
 	TRACE_POINT();
 	Client *client = *c;
 	Request *req = *r;
-	ErrorRenderer renderer(*resourceLocator);
+	SpawningKit::ErrorRenderer renderer(*appPool->getSpawningKitContext());
 	string data;
 
 	if (friendlyErrorPagesEnabled(req)) {

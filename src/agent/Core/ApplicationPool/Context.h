@@ -65,6 +65,7 @@ public:
 	/****** Dependencies ******/
 
 	SpawningKit::FactoryPtr spawningKitFactory;
+	UnionStation::ContextPtr unionStationContext;
 	VariantMap *agentsOptions;
 
 
@@ -89,6 +90,10 @@ public:
 
 	ResourceLocator *getResourceLocator() const {
 		return getSpawningKitContext()->resourceLocator;
+	}
+
+	const RandomGeneratorPtr &getRandomGenerator() const {
+		return getSpawningKitContext()->randomGenerator;
 	}
 };
 

@@ -96,14 +96,21 @@ Group::spawnThreadRealMain(const SpawningKit::SpawnerPtr &spawner,
 			boost::this_thread::restore_interruption ri(di);
 			boost::this_thread::restore_syscall_interruption rsi(dsi);
 			if (shouldFail) {
-				SpawningKit::SpawnException e("Simulated failure");
-				processAndLogNewSpawnException(e, options, pool->getContext());
-				throw e;
+				SpawningKit::Journey journey(SpawningKit::SPAWN_DIRECTLY, false);
+				SpawningKit::Config config;
+				journey.setStepErrored(SpawningKit::SPAWNING_KIT_PREPARATION, true);
+				SpawningKit::SpawnException e(SpawningKit::INTERNAL_ERROR,
+					journey, &config);
+				e.setSummary("Simulated failure");
+				throw e.finalize();
 			} else {
 				process = createProcessObject(*spawner, spawner->spawn(options));
 			}
 		} catch (const boost::thread_interrupted &) {
 			break;
+		} catch (SpawningKit::SpawnException &e) {
+			exception = copyException(e);
+			processAndLogNewSpawnException(e, options, pool->getContext());
 		} catch (const tracable_exception &e) {
 			exception = copyException(e);
 			// Let other (unexpected) exceptions crash the program so
@@ -315,7 +322,7 @@ Group::restart(const Options &options, RestartMethod method) {
 		boost::bind(&Group::finalizeRestart, this, shared_from_this(),
 			this->options.copyAndPersist().clearPerRequestFields(),
 			options.copyAndPersist().clearPerRequestFields(),
-			method, getContext()->getSpawningKitFactory(),
+			method, getContext()->spawningKitFactory,
 			restartsInitiated, actions),
 		"Group restarter: " + getName(),
 		POOL_HELPER_THREAD_STACK_SIZE

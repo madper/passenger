@@ -200,12 +200,12 @@ dependencies = [
   LIBUV_TARGET,
   TEST_BOOST_OXT_LIBRARY,
   TEST_COMMON_LIBRARY.link_objects,
-  #AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT]
+  AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT]
 ].flatten.compact
 file(TEST_CXX_TARGET => dependencies) do
   create_cxx_executable(
     TEST_CXX_TARGET,
-    TEST_CXX_OBJECTS.keys + ['buildout/support-binaries/AgentBase.o'], #+ AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT],
+    TEST_CXX_OBJECTS.keys + AGENT_OBJECTS.keys - [AGENT_MAIN_OBJECT],
     :flags => test_cxx_ldflags
   )
 end
@@ -214,7 +214,7 @@ dependencies = [
   TEST_CXX_TARGET,
   "#{TEST_OUTPUT_DIR}allocate_memory",
   NATIVE_SUPPORT_TARGET,
-  #AGENT_TARGET
+  AGENT_TARGET
 ].compact
 desc "Run unit tests for the C++ components"
 task 'test:cxx' => dependencies do

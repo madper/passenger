@@ -657,6 +657,7 @@ initializeNonPrivilegedWorkingObjects() {
 	wo->appPoolContext = boost::make_shared<ApplicationPool2::Context>();
 	wo->appPoolContext->spawningKitFactory = boost::make_shared<SpawningKit::Factory>(
 		wo->spawningKitContext.get());
+	wo->appPoolContext->unionStationContext = wo->unionStationContext;
 	wo->appPoolContext->agentsOptions = agentsOptions;
 	wo->appPoolContext->finalize();
 	wo->appPool = boost::make_shared<Pool>(wo->appPoolContext.get());
