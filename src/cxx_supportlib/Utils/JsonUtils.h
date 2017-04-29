@@ -167,6 +167,16 @@ getJsonUint64Field(const Json::Value &json, const char *key, unsigned int defaul
 }
 
 
+inline bool
+getJsonBoolField(const Json::Value &json, const char *key) {
+	if (json.isMember(key)) {
+		return json[key].asBool();
+	} else {
+		throw VariantMap::MissingKeyException(key);
+	}
+}
+
+
 inline StaticString
 getJsonStaticStringField(const Json::Value &json, const char *key) {
 	if (json.isMember(key)) {
