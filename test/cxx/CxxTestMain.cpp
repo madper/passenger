@@ -16,7 +16,6 @@
 #include <Utils/SystemTime.h>
 #include <Utils/IOUtils.h>
 #include <Utils/StrIntUtils.h>
-#include <BackgroundEventLoop.cpp>
 #include <jsoncpp/json.h>
 
 using namespace std;

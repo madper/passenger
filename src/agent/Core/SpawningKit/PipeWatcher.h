@@ -133,6 +133,7 @@ private:
 		} else {
 			fwrite(line.data(), 1, line.size(), f);
 			fwrite("\n", 1, 2, f);
+			fflush(f);
 		}
 	}
 

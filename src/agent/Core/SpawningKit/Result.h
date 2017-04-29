@@ -107,6 +107,7 @@ public:
 			if (!description.empty()) {
 				doc["description"] = description;
 			}
+			doc["concurrency"] = concurrency;
 			doc["accept_http_requests"] = acceptHttpRequests;
 			return doc;
 		}

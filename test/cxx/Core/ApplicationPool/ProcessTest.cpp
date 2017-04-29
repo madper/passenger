@@ -41,6 +41,7 @@ namespace tut {
 			socket.address = "tcp://127.0.0.1:" + toString(addr.sin_port);
 			socket.protocol = "session";
 			socket.concurrency = 3;
+			socket.acceptHttpRequests = true;
 			sockets.push_back(socket);
 
 			server2.assign(createTcpServer("127.0.0.1", 0, 0, __FILE__, __LINE__), NULL, 0);
@@ -49,6 +50,7 @@ namespace tut {
 			socket.address = "tcp://127.0.0.1:" + toString(addr.sin_port);
 			socket.protocol = "session";
 			socket.concurrency = 3;
+			socket.acceptHttpRequests = true;
 			sockets.push_back(socket);
 
 			server3.assign(createTcpServer("127.0.0.1", 0, 0, __FILE__, __LINE__), NULL, 0);
@@ -57,6 +59,7 @@ namespace tut {
 			socket.address = "tcp://127.0.0.1:" + toString(addr.sin_port);
 			socket.protocol = "session";
 			socket.concurrency = 3;
+			socket.acceptHttpRequests = true;
 			sockets.push_back(socket);
 
 			stdinFd = createPipe(__FILE__, __LINE__);
@@ -81,7 +84,7 @@ namespace tut {
 			result.spawnStartTimeMonotonic = 1;
 			result.spawnEndTimeMonotonic = 1;
 			result.sockets = sockets;
-			result.stdinFd = stdinFd[0];
+			result.stdinFd = stdinFd[1];
 			result.stdoutAndErrFd = stdoutAndErrFd[0];
 
 			if (!result.validate(internalFieldErrors, appSuppliedFieldErrors)) {
@@ -130,14 +133,14 @@ namespace tut {
 		SessionPtr session1 = process->newSession();
 		SessionPtr session2 = process->newSession();
 		SessionPtr session3 = process->newSession();
-		ensure(session1->getSocket()->name != session2->getSocket()->name);
-		ensure(session1->getSocket()->name != session3->getSocket()->name);
-		ensure(session2->getSocket()->name != session3->getSocket()->name);
+		ensure(session1->getSocket()->address != session2->getSocket()->address);
+		ensure(session1->getSocket()->address != session3->getSocket()->address);
+		ensure(session2->getSocket()->address != session3->getSocket()->address);
 
 		// The next 2 newSession() commands check out sockets with sessions == 1.
 		SessionPtr session4 = process->newSession();
 		SessionPtr session5 = process->newSession();
-		ensure(session4->getSocket()->name != session5->getSocket()->name);
+		ensure(session4->getSocket()->address != session5->getSocket()->address);
 
 		// There should now be 1 process with 1 session
 		// and 2 processes with 2 sessions.
@@ -184,6 +187,7 @@ namespace tut {
 		TempDir temp("tmp.log");
 		Json::Value extraArgs;
 		extraArgs["log_file"] = "tmp.log/file";
+		fclose(fopen("tmp.log/file", "w"));
 
 		ProcessPtr process = createProcess(extraArgs);
 		setLogLevel(LVL_WARN);
