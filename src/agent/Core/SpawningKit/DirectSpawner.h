@@ -126,12 +126,9 @@ private:
 	}
 
 	Result internalSpawn(const AppPoolOptions &options, Config &config,
-		HandshakeSession &session)
+		HandshakeSession &session, const Json::Value &extraArgs)
 	{
 		TRACE_POINT();
-		Json::Value extraArgs;
-
-		setConfigFromAppPoolOptions(&config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();
 
 		Pipe stdinChannel = createPipe(__FILE__, __LINE__);
@@ -229,11 +226,21 @@ public:
 		possiblyRaiseInternalError(options);
 
 		Config config;
+		Json::Value extraArgs;
+		try {
+			setConfigFromAppPoolOptions(&config, extraArgs, options);
+		} catch (const std::exception &originalException) {
+			Journey journey(SPAWN_THROUGH_PRELOADER, true);
+			journey.setStepErrored(SPAWNING_KIT_PREPARATION, true);
+			SpawnException e(originalException, journey, &config);
+			throw e.finalize();
+		}
+
 		HandshakeSession session(*context, config, SPAWN_DIRECTLY);
 		session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
 
 		try {
-			return internalSpawn(options, config, session);
+			return internalSpawn(options, config, session, extraArgs);
 		} catch (const SpawnException &) {
 			throw;
 		} catch (const std::exception &originalException) {

@@ -166,11 +166,21 @@ private:
 		P_DEBUG("Spawning new preloader: appRoot=" << options.appRoot);
 
 		Config config;
+		Json::Value extraArgs;
+		try {
+			setConfigFromAppPoolOptions(&config, extraArgs, options);
+		} catch (const std::exception &originalException) {
+			Journey journey(SPAWN_THROUGH_PRELOADER, true);
+			journey.setStepErrored(SPAWNING_KIT_PREPARATION, true);
+			throw SpawnException(originalException, journey,
+				&config).finalize();
+		}
+
 		HandshakeSession session(*context, config, START_PRELOADER);
 		session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
 
 		try {
-			internalStartPreloader(config, session);
+			internalStartPreloader(config, session, extraArgs);
 		} catch (const SpawnException &) {
 			throw;
 		} catch (const std::exception &originalException) {
@@ -180,13 +190,11 @@ private:
 		}
 	}
 
-	void internalStartPreloader(Config &config, HandshakeSession &session) {
+	void internalStartPreloader(Config &config, HandshakeSession &session,
+		const Json::Value &extraArgs)
+	{
 		TRACE_POINT();
-		Json::Value extraArgs;
-
-		setConfigFromAppPoolOptions(&config, extraArgs, options);
 		HandshakePrepare(session, extraArgs).execute();
-
 		Pipe stdinChannel = createPipe(__FILE__, __LINE__);
 		Pipe stdoutAndErrChannel = createPipe(__FILE__, __LINE__);
 		adhoc_lve::LveEnter scopedLveEnter(LveLoggingDecorator::lveInitOnce(),
@@ -1020,13 +1028,22 @@ public:
 		UPDATE_TRACE_POINT();
 		Config config;
 		Json::Value extraArgs;
+		try {
+			setConfigFromAppPoolOptions(&config, extraArgs, options);
+		} catch (const std::exception &originalException) {
+			Journey journey(SPAWN_THROUGH_PRELOADER, true);
+			journey.setStepErrored(SPAWNING_KIT_PREPARATION, true);
+			SpawnException e(originalException, journey, &config);
+			addPreloaderAnnotations(e);
+			throw e.finalize();
+		}
+
+		UPDATE_TRACE_POINT();
 		Result result;
 		HandshakeSession session(*context, config, SPAWN_THROUGH_PRELOADER);
-
 		session.journey.setStepInProgress(SPAWNING_KIT_PREPARATION);
 
 		try {
-			setConfigFromAppPoolOptions(&config, extraArgs, options);
 			HandshakePrepare(session, extraArgs).execute();
 
 			ForkResult forkResult = invokeForkCommand(session);

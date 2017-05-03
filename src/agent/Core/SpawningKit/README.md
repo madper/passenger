@@ -199,6 +199,8 @@ The work directory's purpose is to:
 
 The work directory doesn't *have* to be used by the subprocess. The handshake procedure works fine even if the subprocess does not do anything with it.
 
+The workdirectory's location is communicated to subprocesses through the `PASSENGER_SPAWN_WORK_DIR` environment variable.
+
 The work directory has the following structure. Entries that are created during the SpawningKit preparation step are marked with "[P]". All other entries may be created by the subprocess.
 
 ~~~

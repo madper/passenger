@@ -131,8 +131,7 @@ recordJourneyStepInProgress(const Context &context,
 		createFile((path + "/state").c_str(),
 			SpawningKit::journeyStepStateToString(SpawningKit::STEP_IN_PROGRESS));
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s/state: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 }
 
@@ -144,28 +143,25 @@ recordJourneyStepComplete(const Context &context, SpawningKit::JourneyStep step,
 		SystemTime::getMonotonicUsecWithGranularity<
 			SystemTime::GRAN_10MSEC>();
 	string stepString = journeyStepToStringLowerCase(step);
-	string path = context.workDir + "/response/" + stepString;
+	string path = context.workDir + "/response/steps/" + stepString;
 	try {
 		makeDirTree(path);
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 		return;
 	}
 	try {
 		createFile((path + "/state").c_str(),
 			SpawningKit::journeyStepStateToString(state));
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s/state: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 		return;
 	}
 	try {
 		createFile((path + "/duration").c_str(),
 			toString((now - startTime) / 1000000));
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s/duration: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 }
 
@@ -187,8 +183,7 @@ recordErrorCategory(const string &workDir, SpawningKit::ErrorCategory category) 
 	try {
 		createFile(path.c_str(), errorCategoryToString(category));
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 }
 
@@ -198,8 +193,7 @@ recordAdvancedProblemDetails(const string &workDir, const string &message) {
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 }
 
@@ -211,8 +205,7 @@ recordErrorSummary(const string &workDir, const string &message,
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 	if (isAlsoAdvancedProblemDetails) {
 		recordAdvancedProblemDetails(workDir, message);
@@ -233,8 +226,7 @@ recordProblemDescriptionHTML(const string &workDir, const string &message) {
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 }
 
@@ -244,8 +236,7 @@ recordSolutionDescriptionHTML(const string &workDir, const string &message) {
 	try {
 		createFile(path.c_str(), message);
 	} catch (const FileSystemException &e) {
-		fprintf(stderr, "Warning: unable to create %s: %s\n",
-			path.c_str(), e.what());
+		fprintf(stderr, "Warning: %s\n", e.what());
 	}
 }
 

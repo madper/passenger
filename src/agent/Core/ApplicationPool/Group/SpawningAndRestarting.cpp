@@ -109,8 +109,8 @@ Group::spawnThreadRealMain(const SpawningKit::SpawnerPtr &spawner,
 		} catch (const boost::thread_interrupted &) {
 			break;
 		} catch (SpawningKit::SpawnException &e) {
-			exception = copyException(e);
 			processAndLogNewSpawnException(e, options, pool->getContext());
+			exception = copyException(e);
 		} catch (const tracable_exception &e) {
 			exception = copyException(e);
 			// Let other (unexpected) exceptions crash the program so
