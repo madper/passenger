@@ -536,9 +536,9 @@ module PhusionPassenger
         case options['integration_mode']
         when 'apache'
           passenger_ruby = 'PassengerRuby'
-          passenger_ruby_doc = 'https://www.phusionpassenger.com/library/config/apache/reference/#passenger_ruby'
+          passenger_ruby_doc = 'https://www.phusionpassenger.com/library/config/apache/reference/#passengerruby'
           passenger_user = 'PassengerUser'
-          passenger_user_doc = 'https://www.phusionpassenger.com/library/config/apache/reference/#passenger_user'
+          passenger_user_doc = 'https://www.phusionpassenger.com/library/config/apache/reference/#passengeruser'
         when 'nginx'
           passenger_ruby = 'passenger_ruby'
           passenger_ruby_doc = 'https://www.phusionpassenger.com/library/config/nginx/reference/#passenger_ruby'
