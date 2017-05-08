@@ -191,6 +191,9 @@ fi
 run chmod g+x,o+x $HOME
 
 if [[ "$TEST_RUBY_VERSION" != "" ]]; then
+	if [[ "$TRAVIS_OS_NAME" == 'osx' ]]; then
+		run brew list readline || run brew install readline
+	fi
 	if [[ -f ~/.rvm/scripts/rvm ]]; then
 		source ~/.rvm/scripts/rvm
 	else
@@ -301,6 +304,9 @@ fi
 if [[ "$TEST_SOURCE_PACKAGING" = 1 ]]; then
 	if [[ "$TRAVIS_OS_NAME" == 'osx' ]]; then
 		brew_update
+		if brew outdated | fgrep boost ; then
+			run brew upgrade boost --force-bottle
+		fi
 		run brew install source-highlight
 	else
 		apt_get_update

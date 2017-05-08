@@ -9,6 +9,7 @@ env:
   - TEST_SOURCE_PACKAGING=1
 
 before_install:
+  - 'echo "rvm_install_on_use_flag=1" >> $HOME/.rvmrc'
   - 'gem update --system 2.6.4 && gem install bundler'
   - 'gem --version'
   - 'bundle --version'
