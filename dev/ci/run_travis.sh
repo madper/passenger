@@ -192,12 +192,13 @@ run chmod g+x,o+x $HOME
 
 if [[ "$TEST_RUBY_VERSION" != "" ]]; then
 	if [[ "$TRAVIS_OS_NAME" == 'osx' ]]; then
-		run brew list readline || run brew install readline
-	fi
-	if [[ -f ~/.rvm/scripts/rvm ]]; then
-		source ~/.rvm/scripts/rvm
+		brew list readline >/dev/null || run brew install readline
 	else
-		source /usr/local/rvm/scripts/rvm
+		if [[ -f ~/.rvm/scripts/rvm ]]; then
+			source ~/.rvm/scripts/rvm
+		else
+			source /usr/local/rvm/scripts/rvm
+		fi
 	fi
 	echo "$ rvm list"
 	rvm list
